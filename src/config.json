@@ -1,0 +1,6 @@
+{
+    "rpc_http_port": 8545,
+    "archiver_ip": "0.0.0.0",
+    "archiver_port": 3000,
+    "debug": true
+}
