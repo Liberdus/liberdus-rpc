@@ -3,7 +3,7 @@ use serde_json::Value;
 use poem::{handler, web::{ Data, Json }};
 use std::sync::Arc;
 
-use crate::{ AppState, methods };
+use crate::{ CrossThreadSharedState, methods };
 
 
 #[derive(Debug, Deserialize)]
@@ -42,7 +42,7 @@ pub fn generate_error_response(id: u32, error_msg: String) -> RpcResponse {
 
 #[handler]
 pub async fn rpc_handler(
-    state: Data<&AppState>,
+    state: Data<&CrossThreadSharedState>,
     Json(req): Json<RpcRequest>,
 ) -> Json<RpcResponse> {
     let method = req.method.clone();

@@ -13,14 +13,13 @@ use poem::{
 };
 
 #[derive(Clone)]
-pub struct AppState {
-    archiver_utils: Arc<archivers::ArchiverUtil>,
+pub struct CrossThreadSharedState {
     liberdus: Arc<liberdus::Liberdus>,
 }
 
 #[tokio::main]
 async fn main()  -> Result<(), std::io::Error>{
-    // console_subscriber::init();
+    console_subscriber::init();
     let _configs = config::Config::load().unwrap_or_else(|err| {
         eprintln!("Failed to load config: {}", err);
         std::process::exit(1);
@@ -43,19 +42,18 @@ async fn main()  -> Result<(), std::io::Error>{
     let _liberdus = Arc::clone(&lbd);
     let _archivers = Arc::clone(&arch_utils);
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(30));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     
         loop {
             ticker.tick().await;
-            _archivers.discover().await;
-            _liberdus.populate_active_nodelist().await;
+            Arc::clone(&_archivers).discover().await;
+            Arc::clone(&_liberdus).update_active_nodelist().await;
     
         }
     });
 
-    let state = AppState {
-        archiver_utils: arch_utils,
+    let state = CrossThreadSharedState {
         liberdus: lbd,
     };
 
@@ -64,10 +62,12 @@ async fn main()  -> Result<(), std::io::Error>{
         .at("/", poem::post(rpc::rpc_handler))
         .data(state);
     
+    let pid = std::process::id();
     println!(
         "JSON-RPC Server running on http://127.0.0.1:{}",
         _configs.rpc_http_port
     );
+    println!("Process ID: {}", pid);
     Server::new(TcpListener::bind((
         "127.0.0.1",
         _configs.rpc_http_port,

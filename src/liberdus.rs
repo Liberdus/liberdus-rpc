@@ -3,7 +3,7 @@ use reqwest;
 use serde_json;
 use serde;
 use rand::prelude::*;
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 use tokio::sync::RwLock;
 use crate::crypto;
 
@@ -15,14 +15,30 @@ pub struct Consensor{
     pub ip: String,
     pub port: u16,
     pub publicKey: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub load: Option<NodeLoad>,
 }
- 
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone)]
+pub struct NodeLoad{
+    pub external: f64,
+    pub internal: f64,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ConsensorLoadResp{
+    pub load: f64,
+    pub nodeLoad: NodeLoad,
+}
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct SignedNodeListResp{
     pub nodeList: Vec<Consensor>,
     pub sign: Signature,
 }
+
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct Signature {
@@ -57,40 +73,130 @@ impl  Liberdus {
         }
     }
 
-    pub async fn populate_active_nodelist(&self){
-        for i in 0..self.archivers.read().await.len(){
-            let archiver = self.archivers.read().await[i].clone();
-            match reqwest::get(&format!("http://{}:{}/full-nodelist?activeOnly=true", archiver.ip, archiver.port)).await {
-                Ok(resp) => {
-                    let body: Result<SignedNodeListResp, _> = serde_json::from_str(&resp.text().await.unwrap());
-                    match body{
-                        Ok(body) => {
-                            if !self.verify_signature(&body){
-                                continue
-                            }
-                            self.active_nodelist.write().await.extend(body.nodeList);
-                            continue
-                        },
-                        Err(_) => continue,
+    pub async fn update_active_nodelist(self: Arc<Self>){
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<Consensor>, std::io::Error>>(64);
+
+        let static_self = self.clone();
+        tokio::spawn(async move {
+                let mut tmp: Vec<Consensor> = Vec::new();
+                while let Some(result) = rx.recv().await{
+                    if result.is_ok(){
+                        tmp.extend(result.unwrap());
                     }
-                },
-                Err(_) => continue,
-            }
+                };
+                tmp.dedup_by(|a,b| a.id == b.id);
+                static_self.sort_consensors_by_load(tmp).await;
+
+        });
+        for archiver in self.archivers.read().await.iter(){
+            
+            let url = format!("http://{}:{}/full-nodelist?activeOnly=true", archiver.ip, archiver.port);
+            let transmitter = tx.clone();
+            let static_self = self.clone();
+
+            tokio::spawn(async move {
+
+                let tx_payload = match reqwest::get(&url).await {
+                    Ok(resp) => {
+                        let body: Result<SignedNodeListResp, _> = serde_json::from_str(&resp.text().await.unwrap());
+                        match body{
+                            Ok(body) => {
+                                //important that serde doesn't populate default value for
+                                // Consensor::load
+                                // it'll make the signature go bad.
+                                if static_self.verify_signature(&body){
+                                    Ok(body.nodeList)
+                                }
+                                else{
+                                    Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid signature"))
+                                }
+                            },
+                            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())),
+                        }
+                    },
+                    Err(e) => Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, e.to_string())),
+                };
+                let _ = transmitter.send(tx_payload).await;
+                drop(transmitter);
+
+            });
         }
 
-        let mut guard = self.active_nodelist.write().await;
-        guard.dedup_by(|a, b| a.id == b.id);
-        drop(guard);
+    }
 
+    async fn sort_consensors_by_load(self: Arc<Self>, consensors: Vec<Consensor>) {
+        let long_lived_self = self.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Consensor, std::io::Error>>(64);
+    
+        tokio::spawn(async move {
+            let mut tmp: Vec<Consensor> = Vec::new();
+            while let Some(result) = rx.recv().await{
+                if result.is_ok(){
+                    tmp.push(result.unwrap());
+                }
+            }
+    
+            // lowest load score first
+            let fallback_bad_load = NodeLoad{
+                external: 1.0,
+                internal: 1.0,
+            };
+            tmp.sort_by(|a, b| {
+                let a = a.load.as_ref().unwrap_or(&fallback_bad_load);
+                let b = b.load.as_ref().unwrap_or(&fallback_bad_load);
+                let a_score = a.external + a.internal;
+                let b_score = b.external + b.internal;
+                a_score.partial_cmp(&b_score).unwrap_or(Ordering::Equal)
+            });
+            let mut guard = long_lived_self.active_nodelist.write().await;
+            *guard = tmp;
+            drop(guard);
+        });
+        for node in consensors.iter() {
+            let url = format!("http://{}:{}/load", node.ip, node.port);
+            let node = node.clone();
+            let transmitter = tx.clone();
+            tokio::spawn(async move {
+                let resp = match reqwest::get(&url).await {
+                    Ok(resp) => {
+                        let body: Result<ConsensorLoadResp, _> = serde_json::from_str(&resp.text().await.unwrap());
+                        match body{
+                            Ok(body) => {
+                                let tmp = Consensor{
+                                    id: node.id,
+                                    ip: node.ip,
+                                    port: node.port,
+                                    publicKey: node.publicKey,
+                                    load: Some(body.nodeLoad),
+                                };
+                               
+                                Ok(tmp)
+    
+                            },
+                            Err(e) => {
+                                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Malfromed Load Object"))
+                            },
+                        }
+                    },
+                    Err(e) => {
+                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Bad Request {}:{}", node.ip, node.port)))
+                    }
+                };
+    
+                let _ = transmitter.send(resp).await;
+                drop(transmitter);
+            });
+        }
+    
     }
     
     pub async fn select_random_consensor(&self) -> Option<Consensor>{
-        let guard = self.active_nodelist.read().await;
-        if guard.len() == 0{
+        let node = self.active_nodelist.read().await;
+        if node.len() == 0{
             return None
         }
-        let index = rand::thread_rng().gen_range(0..guard.len());
-        Some(guard[index].clone())
+        let index = rand::thread_rng().gen_range(0..node.len());
+        Some(node[index].clone())
     }
 
 
