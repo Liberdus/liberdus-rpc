@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use poem::{handler, web::{ Data, Json }};
+use std::sync::Arc;
 
 use crate::{ AppState, methods };
 
@@ -48,7 +49,8 @@ pub async fn rpc_handler(
     let id = req.id;
 
     let result = match method.as_str() {
-        "lib_sendTransaction" => methods::lib_send_transaction(req, state.archiver_utils.get_active_archivers()).await, 
+        "lib_sendTransaction" => methods::lib_send_transaction(req, Arc::clone(&state.liberdus)).await, 
+        "lib_getAccount" => methods::lib_get_account(req, Arc::clone(&state.liberdus)).await,
         _ => generate_error_response(id, "Method not found".to_string()),
     };
 

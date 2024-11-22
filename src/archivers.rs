@@ -7,8 +7,8 @@ use rand::prelude::*;
 
 pub struct ArchiverUtil {
     seed_list: Vec<Archiver>,
-    final_list: Arc<RwLock<Vec<Archiver>>>,
-    crypto: ShardusCrypto,
+    active_list: Arc<RwLock<Vec<Archiver>>>,
+    crypto: Arc<ShardusCrypto>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -36,29 +36,33 @@ pub struct SignedArchiverListResponse {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct Signature {
-    owner: String,
-    sig: String,
+    pub owner: String,
+    pub sig: String,
 }
 
 impl ArchiverUtil {
-    pub fn new(key: &str, seed: Vec<Archiver>) -> Self {
+    pub fn new(sc: Arc<ShardusCrypto>, seed: Vec<Archiver>) -> Self {
         ArchiverUtil { 
             seed_list: seed,
-            final_list: Arc::new(RwLock::new(Vec::new())),
-            crypto: ShardusCrypto::new(key),
+            active_list: Arc::new(RwLock::new(Vec::new())),
+            crypto: sc,
         }
     }
 
     pub async fn discover(&self) {
         // todo improve performance
+        // spawn concurrent tasks and join the results with mpsc channel like lib-net multi tell
         for seed in self.seed_list.as_slice() {
-            let resp = reqwest::get(&format!("http://{}:{}/archivers", seed.ip, seed.port)).await.unwrap();
+            let resp = match reqwest::get(&format!("http://{}:{}/archivers", seed.ip, seed.port)).await {
+                Ok(resp) => resp,
+                Err(_) => continue
+            };
             let body: Result<SignedArchiverListResponse, _> = serde_json::from_str(&resp.text().await.unwrap());
             match body {
                 Ok(body) => {
 
                     if self.verify_signature(&body) {
-                        let mut guard = self.final_list.write().await;
+                        let mut guard = self.active_list.write().await;
                         *guard = body.activeArchivers;
                         drop(guard);
                     }
@@ -72,13 +76,13 @@ impl ArchiverUtil {
     }
 
     async fn remove_duplicates(&self) {
-        let mut final_list = self.final_list.write().await;
-        final_list.dedup_by(|a, b| a.publicKey == b.publicKey);
-        drop(final_list);
+        let mut guard = self.active_list.write().await;
+        guard.dedup_by(|a, b| a.publicKey == b.publicKey);
+        drop(guard);
     }
 
     pub fn get_active_archivers(&self) -> Arc<RwLock<Vec<Archiver>>> {
-        self.final_list.clone()
+        self.active_list.clone()
     }
 
 
@@ -96,9 +100,6 @@ impl ArchiverUtil {
         self.crypto.verify(&hash, &sodiumoxide::hex::decode(&signed_payload.sign.sig).unwrap().to_vec(), &pk)
 
     }
-
-   // Uniform distributed thread-safe random selection
-
 }
 
 pub async fn select_random_archiver(archivers: Arc<RwLock<Vec<Archiver>>>) -> Option<Archiver> {
