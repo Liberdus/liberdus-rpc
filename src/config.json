@@ -1,6 +1,6 @@
 {
     "rpc_http_port": 8545,
-    "archiver_ip": "0.0.0.0",
-    "archiver_port": 3000,
+    "archiver_seed_path": "src/archiver_seed.json",
+    "nodelist_refresh_interval_sec": 30,
     "debug": true
 }

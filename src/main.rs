@@ -25,9 +25,8 @@ async fn main()  -> Result<(), std::io::Error>{
         std::process::exit(1);
     });
 
-    let archiver_seed_path = format!("src/archiver_seed.json");
 
-    let archiver_seed_data = fs::read_to_string(&archiver_seed_path)
+    let archiver_seed_data = fs::read_to_string(&_configs.archiver_seed_path)
         .map_err(|err| format!("Failed to read archiver seed file: {}", err)).unwrap();
 
     let archiver_seed: Vec<archivers::Archiver> = serde_json::from_str(&archiver_seed_data).unwrap();
@@ -41,8 +40,10 @@ async fn main()  -> Result<(), std::io::Error>{
     
     let _liberdus = Arc::clone(&lbd);
     let _archivers = Arc::clone(&arch_utils);
+
+
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(_configs.nodelist_refresh_interval_sec));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     
         loop {
@@ -63,6 +64,7 @@ async fn main()  -> Result<(), std::io::Error>{
         .data(state);
     
     let pid = std::process::id();
+
     println!(
         "JSON-RPC Server running on http://127.0.0.1:{}",
         _configs.rpc_http_port

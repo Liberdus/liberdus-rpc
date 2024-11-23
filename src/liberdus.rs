@@ -10,6 +10,7 @@ use crate::crypto;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone)]
+#[allow(non_snake_case)]
 pub struct Consensor{
     pub id: String,
     pub ip: String,
@@ -18,6 +19,9 @@ pub struct Consensor{
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub load: Option<NodeLoad>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub rng_bias: Option<f64>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -28,11 +32,13 @@ pub struct NodeLoad{
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
+#[allow(non_snake_case)]
 pub struct ConsensorLoadResp{
     pub load: f64,
     pub nodeLoad: NodeLoad,
 }
 
+#[allow(non_snake_case)]
 #[derive(serde::Deserialize, serde::Serialize)]
 struct SignedNodeListResp{
     pub nodeList: Vec<Consensor>,
@@ -54,8 +60,9 @@ struct TxInjectResp{
 pub struct Liberdus {
     active_nodelist: Arc<RwLock<Vec<Consensor>>>,
     archivers: Arc<RwLock<Vec<archivers::Archiver>>>,
-    current: u64,
+    winner_index: Arc<RwLock<usize>>,
     crypto: Arc<crypto::ShardusCrypto>,
+    load_distribution_commulative_bias: Arc<RwLock<Vec<f64>>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -66,93 +73,106 @@ pub struct GetAccountResp{
 impl  Liberdus {
     pub fn new (sc: Arc<crypto::ShardusCrypto>, archivers: Arc<RwLock<Vec<archivers::Archiver>>>) -> Self{
         Liberdus{
-            current: 0,
+            winner_index: Arc::new(RwLock::new(0)),
             active_nodelist: Arc::new(RwLock::new(Vec::new())),
             archivers,
             crypto: sc,
+            load_distribution_commulative_bias: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub async fn update_active_nodelist(self: Arc<Self>){
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<Consensor>, std::io::Error>>(64);
 
-        let static_self = self.clone();
-        tokio::spawn(async move {
-                let mut tmp: Vec<Consensor> = Vec::new();
-                while let Some(result) = rx.recv().await{
-                    if result.is_ok(){
-                        tmp.extend(result.unwrap());
-                    }
-                };
-                tmp.dedup_by(|a,b| a.id == b.id);
-                static_self.sort_consensors_by_load(tmp).await;
-
-        });
         for archiver in self.archivers.read().await.iter(){
-            
             let url = format!("http://{}:{}/full-nodelist?activeOnly=true", archiver.ip, archiver.port);
-            let transmitter = tx.clone();
             let static_self = self.clone();
+            let collected_nodelist = match reqwest::get(&url).await {
+                Ok(resp) => {
+                    let body: Result<SignedNodeListResp, _> = serde_json::from_str(&resp.text().await.unwrap());
+                    match body{
+                        Ok(body) => {
+                            //important that serde doesn't populate default value for
+                            // Consensor::load
+                            // it'll make the signature go bad.
+                            if static_self.verify_signature(&body){
+                                Ok(body.nodeList)
+                            }
+                            else{
+                                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid signature"))
+                            }
+                        },
+                        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())),
+                    }
+                },
+                Err(e) => Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, e.to_string())),
+            };
+            if collected_nodelist.is_ok(){
+                static_self.prepare_list(collected_nodelist.unwrap()).await;
+                break
+            }
 
-            tokio::spawn(async move {
-
-                let tx_payload = match reqwest::get(&url).await {
-                    Ok(resp) => {
-                        let body: Result<SignedNodeListResp, _> = serde_json::from_str(&resp.text().await.unwrap());
-                        match body{
-                            Ok(body) => {
-                                //important that serde doesn't populate default value for
-                                // Consensor::load
-                                // it'll make the signature go bad.
-                                if static_self.verify_signature(&body){
-                                    Ok(body.nodeList)
-                                }
-                                else{
-                                    Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid signature"))
-                                }
-                            },
-                            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())),
-                        }
-                    },
-                    Err(e) => Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, e.to_string())),
-                };
-                let _ = transmitter.send(tx_payload).await;
-                drop(transmitter);
-
-            });
         }
 
     }
 
-    async fn sort_consensors_by_load(self: Arc<Self>, consensors: Vec<Consensor>) {
+    /// Prepares the active consensor list by fetching and calculating load-based biases.
+    /// 
+    /// - Fetches the load details for each node in `unordered_incomplete_list` concurrently.
+    /// - Sorts nodes by their load (`external + internal`), lowest load node to highest load node.
+    /// - Computes `rng_bias` for each node as `1 / (load.external + load.internal)`, capped to avoid division by zero.
+    /// - Builds a cumulative bias list for efficient O(log n) random selection.
+    /// - Updates `active_nodelist` and `load_distribution_commulative_bias` atomically.
+    ///
+    /// This function handles errors gracefully, skipping invalid or unreachable nodes, ensuring a healthy active list.
+    ///
+    /// **Time Complexity**: O(n log n) for sorting and load computation.
+    async fn prepare_list(self: Arc<Self>, unordered_incomplete_list: Vec<Consensor>) {
         let long_lived_self = self.clone();
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Consensor, std::io::Error>>(64);
     
         tokio::spawn(async move {
-            let mut tmp: Vec<Consensor> = Vec::new();
+            let mut collected_consensors: Vec<Consensor> = Vec::new();
             while let Some(result) = rx.recv().await{
                 if result.is_ok(){
-                    tmp.push(result.unwrap());
+                    collected_consensors.push(result.unwrap());
                 }
             }
     
-            // lowest load score first
             let fallback_bad_load = NodeLoad{
                 external: 1.0,
                 internal: 1.0,
             };
-            tmp.sort_by(|a, b| {
+            collected_consensors.sort_by(|a, b| {
                 let a = a.load.as_ref().unwrap_or(&fallback_bad_load);
                 let b = b.load.as_ref().unwrap_or(&fallback_bad_load);
                 let a_score = a.external + a.internal;
                 let b_score = b.external + b.internal;
                 a_score.partial_cmp(&b_score).unwrap_or(Ordering::Equal)
             });
-            let mut guard = long_lived_self.active_nodelist.write().await;
-            *guard = tmp;
-            drop(guard);
+
+            let mut total_bias = 0.0;
+            let mut cumulative_bias = Vec::new();
+            for i in 0..collected_consensors.len() {
+                let load = collected_consensors[i].load.as_ref().unwrap_or(&fallback_bad_load);
+                collected_consensors[i].rng_bias = Some(1.0 / (load.external + load.internal).max(0.01)); // Bias formula
+                total_bias += collected_consensors[i].rng_bias.unwrap_or(0.0);
+                cumulative_bias.push(total_bias);
+            }
+
+            {
+                let mut guard = long_lived_self.active_nodelist.write().await;
+                *guard = collected_consensors;
+                drop(guard);
+            }
+
+            {
+                let mut guard = long_lived_self.load_distribution_commulative_bias.write().await;
+                *guard = cumulative_bias;
+                drop(guard);
+            }
+
         });
-        for node in consensors.iter() {
+        for node in unordered_incomplete_list.iter() {
             let url = format!("http://{}:{}/load", node.ip, node.port);
             let node = node.clone();
             let transmitter = tx.clone();
@@ -168,17 +188,18 @@ impl  Liberdus {
                                     port: node.port,
                                     publicKey: node.publicKey,
                                     load: Some(body.nodeLoad),
+                                    rng_bias: None,
                                 };
                                
                                 Ok(tmp)
     
                             },
-                            Err(e) => {
+                            Err(_e) => {
                                 Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Malfromed Load Object"))
                             },
                         }
                     },
-                    Err(e) => {
+                    Err(_e) => {
                         Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Bad Request {}:{}", node.ip, node.port)))
                     }
                 };
@@ -190,13 +211,40 @@ impl  Liberdus {
     
     }
     
-    pub async fn select_random_consensor(&self) -> Option<Consensor>{
-        let node = self.active_nodelist.read().await;
-        if node.len() == 0{
-            return None
+    /// Selects a random node from the active list based on weighted bias (`1 / (internal + external)`),
+    /// favoring lower-load nodes with biased probabality to be picked. Uses precomputed cumulative bias for O(log n)
+    /// binary search. Returns `Some(Consensor)` if nodes exist, else `None`. Efficient for dynamic load-balancing.
+    /// use `get_random_consensor` for a non-biased faster random selection.
+    pub async fn get_random_consensor_biased(&self) -> Option<Consensor> {
+
+            let nodes = self.active_nodelist.read().await;
+            let cumulative_weights = self.load_distribution_commulative_bias.read().await;
+
+            if nodes.is_empty() {
+                return None;
+            }
+
+            let mut rng = thread_rng();
+            let total_bias = *cumulative_weights.last().unwrap();
+            let random_value: f64 = rng.gen_range(0.0..total_bias);
+
+            let index = match cumulative_weights.binary_search_by(|&bias| bias.partial_cmp(&random_value).unwrap()) {
+                Ok(i) => i,      // Exact match
+                Err(i) => i,     // Closest match (next higher value)
+            };
+
+            Some(nodes[index].clone())
+
+    }
+
+    pub async fn get_random_consensor(&self) -> Option<Consensor> {
+        let nodes = self.active_nodelist.read().await;
+        if nodes.is_empty(){
+            return None;
         }
-        let index = rand::thread_rng().gen_range(0..node.len());
-        Some(node[index].clone())
+        let mut rng = thread_rng();
+        let index = rng.gen_range(0..nodes.len());
+        Some(nodes[index].clone())
     }
 
 
@@ -206,7 +254,7 @@ impl  Liberdus {
             "tx": tx,
         });
 
-        let consensor = match self.select_random_consensor().await {
+        let consensor = match self.get_random_consensor_biased().await {
             Some(consensor) => consensor,
             None => return Err("Failed to select consensor".into()),
         };
@@ -232,7 +280,7 @@ impl  Liberdus {
 
     pub async fn get_account_by_addr(&self, address: String) -> Result<serde_json::Value, serde_json::Value>{
 
-        let consensor = match self.select_random_consensor().await {
+        let consensor = match self.get_random_consensor_biased().await {
             Some(consensor) => consensor,
             None => return Err("Failed to select consensor".into()),
         };

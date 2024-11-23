@@ -12,6 +12,7 @@ pub struct ArchiverUtil {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
+#[allow(non_snake_case)]
 pub struct Archiver {
     pub publicKey: String,
     pub port: u16,
@@ -28,6 +29,7 @@ impl Clone for Archiver {
     }
 }
 
+#[allow(non_snake_case)]
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct SignedArchiverListResponse {
     activeArchivers: Vec<Archiver>,
