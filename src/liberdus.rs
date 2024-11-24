@@ -70,6 +70,13 @@ pub struct GetAccountResp{
     account: serde_json::Value,
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct GetTransactionResp{
+    #[serde(skip_serializing_if = "Option::is_none")]
+    account: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transaction: Option<serde_json::Value>,
+}
 impl  Liberdus {
     pub fn new (sc: Arc<crypto::ShardusCrypto>, archivers: Arc<RwLock<Vec<archivers::Archiver>>>) -> Self{
         Liberdus{
@@ -310,11 +317,12 @@ impl  Liberdus {
 
         match resp{
             Ok(resp) => {
-                let body: GetAccountResp = resp.json().await.unwrap();
-                match body.account{
-                    serde_json::Value::Null => Err("Transaction not found".into()),
-                    _ => Ok(body.account),
+                let body: GetTransactionResp = resp.json().await.unwrap();
+                match body.transaction{
+                    Some(tx) => Ok(tx),
+                    None => Err("Transaction not found".into()),
                 }
+
             },
             Err(e) => Err(e.to_string().into()),
         }
