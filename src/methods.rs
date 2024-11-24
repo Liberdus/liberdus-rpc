@@ -18,8 +18,18 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: Arc<liberdus::
     }
 }
 
-pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest) -> rpc::RpcResponse {
-    todo!()
+pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+    let params = req.params.unwrap_or(Value::Null);
+    match params {
+        Value::Array(values) if values.len() > 0 => {
+            let tx_hash = values[0].as_str().unwrap().to_string();
+            match liberdus.get_transaction_receipt(tx_hash).await {
+                Ok(result) => rpc::generate_success_response(req.id, result),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+            }
+        }
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+    }
 }
 
 pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {

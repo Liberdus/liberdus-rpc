@@ -299,6 +299,27 @@ impl  Liberdus {
         }
     }
 
+    pub async fn get_transaction_receipt(&self, id: String) -> Result<serde_json::Value, serde_json::Value>{
+
+        let consensor = match self.get_random_consensor_biased().await {
+            Some(consensor) => consensor,
+            None => return Err("Failed to select consensor".into()),
+        };
+
+        let resp = reqwest::get(&format!("http://{}:{}/transaction/{}", consensor.ip, consensor.port, id)).await;
+
+        match resp{
+            Ok(resp) => {
+                let body: GetAccountResp = resp.json().await.unwrap();
+                match body.account{
+                    serde_json::Value::Null => Err("Transaction not found".into()),
+                    _ => Ok(body.account),
+                }
+            },
+            Err(e) => Err(e.to_string().into()),
+        }
+    }
+
     fn verify_signature(&self, signed_payload: &SignedNodeListResp) -> bool {
         let unsigned_msg = serde_json::json!({
             "nodeList": signed_payload.nodeList,
