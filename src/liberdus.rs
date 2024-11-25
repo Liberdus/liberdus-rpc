@@ -77,6 +77,7 @@ pub struct GetTransactionResp{
     #[serde(skip_serializing_if = "Option::is_none")]
     transaction: Option<serde_json::Value>,
 }
+
 impl  Liberdus {
     pub fn new (sc: Arc<crypto::ShardusCrypto>, archivers: Arc<RwLock<Vec<archivers::Archiver>>>) -> Self{
         Liberdus{
@@ -323,6 +324,23 @@ impl  Liberdus {
                     None => Err("Transaction not found".into()),
                 }
 
+            },
+            Err(e) => Err(e.to_string().into()),
+        }
+    }
+
+    pub async fn get_messages(&self, chat_id: String) -> Result<serde_json::Value, serde_json::Value>{
+        let consensor = match self.get_random_consensor_biased().await {
+            Some(consensor) => consensor,
+            None => return Err("Failed to select consensor".into()),
+        };
+
+        let resp = reqwest::get(&format!("http://{}:{}/messages/{}", consensor.ip, consensor.port, chat_id)).await;
+
+        match resp{
+            Ok(resp) => {
+                let body: serde_json::Value = resp.json().await.unwrap();
+                Ok(body)
             },
             Err(e) => Err(e.to_string().into()),
         }

@@ -52,6 +52,7 @@ pub async fn rpc_handler(
         "lib_sendTransaction" => methods::lib_send_transaction(req, Arc::clone(&state.liberdus)).await, 
         "lib_getAccount" => methods::lib_get_account(req, Arc::clone(&state.liberdus)).await,
         "lib_getTransactionReceipt" => methods::lib_get_transaction_receipt(req, Arc::clone(&state.liberdus)).await,
+        "lib_getMessage" => methods::lib_get_messages(req, Arc::clone(&state.liberdus)).await,
         _ => generate_error_response(id, "Method not found".to_string()),
     };
 

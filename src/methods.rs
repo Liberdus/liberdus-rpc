@@ -1,4 +1,4 @@
-use crate::{liberdus, rpc};
+use crate::{liberdus, rpc::{self, RpcRequest}};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -48,4 +48,27 @@ pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liber
         }
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
     }
+}
+
+pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+    let params = match req.params {
+        Some(params) => params,
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+    };
+
+    match params {
+        Value::Array(values) if values.len() > 0 => {
+            let chat_id = values[0].as_str().unwrap_or("").to_string();
+            match liberdus.get_messages(chat_id).await {
+                Ok(result) => rpc::generate_success_response(req.id, result),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+            }
+        }
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+    }
+}
+
+
+pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+    todo!()
 }
