@@ -141,10 +141,10 @@ impl  Liberdus {
         if max_timeout == 1 {
             return 1.0; // All timeouts are the same
         }
-        let timeout_f = timetaken_ms as f64;
+        let timetaken_ms_f = timetaken_ms as f64;
         let min_timeout_f = 0.01 as f64;
         let max_timeout_f = max_timeout as f64;
-        1.0 - (timeout_f - min_timeout_f) / (max_timeout_f - min_timeout_f)
+        1.0 - (timetaken_ms_f - min_timeout_f) / (max_timeout_f - min_timeout_f)
     }
 
     async fn prepare_list(&self) {
