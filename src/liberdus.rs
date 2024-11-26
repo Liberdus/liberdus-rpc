@@ -3,7 +3,7 @@ use reqwest;
 use serde_json;
 use serde;
 use rand::prelude::*;
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, collections::HashMap, sync::{atomic::{AtomicBool, AtomicU8, AtomicUsize}, Arc}};
 use tokio::sync::RwLock;
 use crate::crypto;
 
@@ -18,24 +18,7 @@ pub struct Consensor{
     pub publicKey: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub load: Option<NodeLoad>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub rng_bias: Option<f64>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[derive(Clone)]
-pub struct NodeLoad{
-    pub external: f64,
-    pub internal: f64,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[allow(non_snake_case)]
-pub struct ConsensorLoadResp{
-    pub load: f64,
-    pub nodeLoad: NodeLoad,
+    pub rng_bias: Option<u128>,
 }
 
 #[allow(non_snake_case)]
@@ -59,10 +42,13 @@ struct TxInjectResp{
 
 pub struct Liberdus {
     active_nodelist: Arc<RwLock<Vec<Consensor>>>,
+    active_sorted_nodelist: Arc<RwLock<Vec<Consensor>>>,
+    trip_ms: Arc<RwLock<HashMap<String, u128>>>,
     archivers: Arc<RwLock<Vec<archivers::Archiver>>>,
-    winner_index: Arc<RwLock<usize>>,
+    round_robin_index: Arc<AtomicUsize>,
+    list_prepared: Arc<AtomicBool>,
     crypto: Arc<crypto::ShardusCrypto>,
-    load_distribution_commulative_bias: Arc<RwLock<Vec<f64>>>,
+    load_distribution_commulative_bias: Arc<RwLock<Vec<u128>>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -81,28 +67,32 @@ pub struct GetTransactionResp{
 impl  Liberdus {
     pub fn new (sc: Arc<crypto::ShardusCrypto>, archivers: Arc<RwLock<Vec<archivers::Archiver>>>) -> Self{
         Liberdus{
-            winner_index: Arc::new(RwLock::new(0)),
+            round_robin_index: Arc::new(AtomicUsize::new(0)),
+            trip_ms: Arc::new(RwLock::new(HashMap::new())),
             active_nodelist: Arc::new(RwLock::new(Vec::new())),
+            active_sorted_nodelist: Arc::new(RwLock::new(Vec::new())),
+            list_prepared: Arc::new(AtomicBool::new(false)),
             archivers,
             crypto: sc,
             load_distribution_commulative_bias: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
-    pub async fn update_active_nodelist(self: Arc<Self>){
+    pub async fn update_active_nodelist(&self){
 
-        for archiver in self.archivers.read().await.iter(){
+        let archivers = self.archivers.read().await.clone();
+
+        for archiver in archivers.iter(){
             let url = format!("http://{}:{}/full-nodelist?activeOnly=true", archiver.ip, archiver.port);
-            let static_self = self.clone();
             let collected_nodelist = match reqwest::get(&url).await {
                 Ok(resp) => {
                     let body: Result<SignedNodeListResp, _> = serde_json::from_str(&resp.text().await.unwrap());
                     match body{
                         Ok(body) => {
                             //important that serde doesn't populate default value for
-                            // Consensor::load
-                            // it'll make the signature go bad.
-                            if static_self.verify_signature(&body){
+                            // Consensor::trip_ms
+                            // it'll taint the signature payload
+                            if self.verify_signature(&body){
                                 Ok(body.nodeList)
                             }
                             else{
@@ -114,147 +104,151 @@ impl  Liberdus {
                 },
                 Err(e) => Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, e.to_string())),
             };
-            if collected_nodelist.is_ok(){
-                static_self.prepare_list(collected_nodelist.unwrap()).await;
-                break
-            }
 
-        }
+            match collected_nodelist{
+                Ok(nodelist) => {
+                    {
+                       let mut guard = self.active_nodelist.write().await; 
+                       *guard = nodelist;
+                    }
 
-    }
-
-    /// Prepares the active consensor list by fetching and calculating load-based biases.
-    /// 
-    /// - Fetches the load details for each node in `unordered_incomplete_list` concurrently.
-    /// - Sorts nodes by their load (`external + internal`), lowest load node to highest load node.
-    /// - Computes `rng_bias` for each node as `1 / (load.external + load.internal)`, capped to avoid division by zero.
-    /// - Builds a cumulative bias list for efficient O(log n) random selection.
-    /// - Updates `active_nodelist` and `load_distribution_commulative_bias` atomically.
-    ///
-    /// This function handles errors gracefully, skipping invalid or unreachable nodes, ensuring a healthy active list.
-    ///
-    /// **Time Complexity**: O(n log n) for sorting and load computation.
-    async fn prepare_list(self: Arc<Self>, unordered_incomplete_list: Vec<Consensor>) {
-        let long_lived_self = self.clone();
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Consensor, std::io::Error>>(64);
-    
-        tokio::spawn(async move {
-            let mut collected_consensors: Vec<Consensor> = Vec::new();
-            while let Some(result) = rx.recv().await{
-                if result.is_ok(){
-                    collected_consensors.push(result.unwrap());
+                   // inititally node list does not contain load data.
+                   self.list_prepared.store(false, std::sync::atomic::Ordering::Relaxed);
+                    {
+                        let mut guard = self.load_distribution_commulative_bias.write().await;
+                        *guard = Vec::new();
+                    }
+                    {
+                        let mut guard = self.trip_ms.write().await;
+                        *guard = HashMap::new();
+                    }
+                   break
+                },
+                Err(_e) => {
+                    continue;
                 }
             }
-    
-            let fallback_bad_load = NodeLoad{
-                external: 1.0,
-                internal: 1.0,
-            };
-            collected_consensors.sort_by(|a, b| {
-                let a = a.load.as_ref().unwrap_or(&fallback_bad_load);
-                let b = b.load.as_ref().unwrap_or(&fallback_bad_load);
-                let a_score = a.external + a.internal;
-                let b_score = b.external + b.internal;
-                a_score.partial_cmp(&b_score).unwrap_or(Ordering::Equal)
-            });
 
-            let mut total_bias = 0.0;
-            let mut cumulative_bias = Vec::new();
-            for i in 0..collected_consensors.len() {
-                let load = collected_consensors[i].load.as_ref().unwrap_or(&fallback_bad_load);
-                collected_consensors[i].rng_bias = Some(1.0 / (load.external + load.internal).max(0.01)); // Bias formula
-                total_bias += collected_consensors[i].rng_bias.unwrap_or(0.0);
-                cumulative_bias.push(total_bias);
-            }
 
-            {
-                let mut guard = long_lived_self.active_nodelist.write().await;
-                *guard = collected_consensors;
-                drop(guard);
-            }
-
-            {
-                let mut guard = long_lived_self.load_distribution_commulative_bias.write().await;
-                *guard = cumulative_bias;
-                drop(guard);
-            }
-
-        });
-        for node in unordered_incomplete_list.iter() {
-            let url = format!("http://{}:{}/load", node.ip, node.port);
-            let node = node.clone();
-            let transmitter = tx.clone();
-            tokio::spawn(async move {
-                let resp = match reqwest::get(&url).await {
-                    Ok(resp) => {
-                        let body: Result<ConsensorLoadResp, _> = serde_json::from_str(&resp.text().await.unwrap());
-                        match body{
-                            Ok(body) => {
-                                let tmp = Consensor{
-                                    id: node.id,
-                                    ip: node.ip,
-                                    port: node.port,
-                                    publicKey: node.publicKey,
-                                    load: Some(body.nodeLoad),
-                                    rng_bias: None,
-                                };
-                               
-                                Ok(tmp)
-    
-                            },
-                            Err(_e) => {
-                                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Malfromed Load Object"))
-                            },
-                        }
-                    },
-                    Err(_e) => {
-                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Bad Request {}:{}", node.ip, node.port)))
-                    }
-                };
-    
-                let _ = transmitter.send(resp).await;
-                drop(transmitter);
-            });
         }
-    
+
     }
-    
-    /// Selects a random node from the active list based on weighted bias (`1 / (internal + external)`),
-    /// favoring lower-load nodes with biased probabality to be picked. Uses precomputed cumulative bias for O(log n)
-    /// binary search. Returns `Some(Consensor)` if nodes exist, else `None`. Efficient for dynamic load-balancing.
-    /// use `get_random_consensor` for a non-biased faster random selection.
-    pub async fn get_random_consensor_biased(&self) -> Option<Consensor> {
+    async fn prepare_list(&self) {
+        if self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) == true {
+            return;
+        }
 
-            let nodes = self.active_nodelist.read().await;
-            let cumulative_weights = self.load_distribution_commulative_bias.read().await;
+        let nodes = {
+            let guard = self.active_nodelist.read().await;
+            guard.clone()
+        };
 
-            if nodes.is_empty() {
+        let trip_ms = {
+            let guard = self.trip_ms.read().await;
+            guard.clone()
+        };
+
+        let fallback_bad_load = 3000; // 3 seconds
+        let mut sorted_nodes = nodes.clone();
+
+        sorted_nodes.sort_by(|a, b| {
+            let a_time = trip_ms.get(&a.id).unwrap_or(&fallback_bad_load);
+            let b_time = trip_ms.get(&b.id).unwrap_or(&fallback_bad_load);
+            a_time.cmp(b_time)
+        });
+
+        let mut total_bias = 0;
+        let mut cumulative_bias = Vec::new();
+        for node in &mut sorted_nodes {
+            let load = *trip_ms.get(&node.id).unwrap_or(&fallback_bad_load);
+            node.rng_bias = Some(1 / load.max(1)); // Bias formula
+            total_bias += node.rng_bias.unwrap_or(0);
+            cumulative_bias.push(total_bias);
+        }
+
+        {
+            let mut guard = self.active_nodelist.write().await;
+            *guard = sorted_nodes;
+        }
+
+        {
+            let mut guard = self.load_distribution_commulative_bias.write().await;
+            *guard = cumulative_bias;
+        }
+
+        self.list_prepared.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+
+    /// Selects a random node from the active list based on weighted bias
+    /// bias is derived from last http call's round trip time to the node.
+    /// this function required the list to be sorted and bias values are calculated prior
+    /// return None otherwise.
+    async fn get_random_consensor_biased(&self) -> Option<(usize, Consensor)> {
+            if self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) == false {
+                return None;
+            }
+
+            let nodes = self.active_nodelist.read().await.clone();
+            let cumulative_weights = self.load_distribution_commulative_bias.read().await.clone();
+
+            if nodes.is_empty() || cumulative_weights.is_empty() {
                 return None;
             }
 
             let mut rng = thread_rng();
             let total_bias = *cumulative_weights.last().unwrap();
-            let random_value: f64 = rng.gen_range(0.0..total_bias);
+            let random_value: u128 = rng.gen_range(0..total_bias);
 
             let index = match cumulative_weights.binary_search_by(|&bias| bias.partial_cmp(&random_value).unwrap()) {
                 Ok(i) => i,      // Exact match
                 Err(i) => i,     // Closest match (next higher value)
             };
 
-            Some(nodes[index].clone())
+            Some((index, nodes[index].clone()))
 
     }
 
-    pub async fn get_random_consensor(&self) -> Option<Consensor> {
-        let nodes = self.active_nodelist.read().await;
-        if nodes.is_empty(){
-            return None;
+
+    /// This function is the defecto way to get a consensor.
+    /// When nodeList is first refreshed the round trip http request time for the nodes are
+    /// unknown. The function will round robin from the list to return consensor. 
+    /// During the interaction with the each consensors in each rpc call, it will collect the round trip time for
+    /// each node. The values are then used to calculate a weighted bias for
+    /// node selection. Subsequent call will be redirected towards the node based on that bias and round robin
+    /// is dismissed.
+    pub async fn get_next_appropriate_consensor(&self) -> Option<(usize, Consensor)> {
+        match self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) {
+            true => {
+               self.get_random_consensor_biased().await 
+            },
+            false => {
+                let index = self.round_robin_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                let nodes = self.active_nodelist.read().await;
+                if index >= nodes.len() {
+                    // dropping the `nodes` is really important here
+                    // prepare_list() will acquire write lock
+                    // but this scope here has a simultaneous read lock
+                    // this will cause a deadlock if not drop
+                    drop(nodes);
+                    self.prepare_list().await;
+                    return self.get_random_consensor_biased().await;
+                }
+                return Some((index, nodes[index].clone()));
+            },
         }
-        let mut rng = thread_rng();
-        let index = rng.gen_range(0..nodes.len());
-        Some(nodes[index].clone())
     }
 
+    pub fn set_consensor_trip_ms(&self, node_id: String, trip_ms: u128){
+        let trip_ms_map = self.trip_ms.clone();
+
+        tokio::spawn(async move {
+            let mut guard = trip_ms_map.write().await;
+            guard.insert(node_id, trip_ms);           
+            drop(guard);                              
+        });        
+    }
 
     pub async fn inject_transaction(&self, tx: serde_json::Value) -> Result<serde_json::Value, serde_json::Value>{
         let client = reqwest::Client::new();
@@ -262,15 +256,19 @@ impl  Liberdus {
             "tx": tx,
         });
 
-        let consensor = match self.get_random_consensor_biased().await {
-            Some(consensor) => consensor,
+        let (index, consensor) = match self.get_next_appropriate_consensor().await {
+            Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
         };
 
+        let start = std::time::Instant::now();
          let resp = client.post(&format!("http://{}:{}/inject", consensor.ip, consensor.port))
             .json(&payload)
             .send()
             .await;
+        let duration = start.elapsed().as_millis();
+
+        self.set_consensor_trip_ms(consensor.id, duration);
         
         match resp{
             Ok(resp) => {
@@ -288,12 +286,16 @@ impl  Liberdus {
 
     pub async fn get_account_by_addr(&self, address: String) -> Result<serde_json::Value, serde_json::Value>{
 
-        let consensor = match self.get_random_consensor_biased().await {
-            Some(consensor) => consensor,
+        let (index, consensor) = match self.get_next_appropriate_consensor().await {
+            Some((index,consensor)) => (index,consensor),
             None => return Err("Failed to select consensor".into()),
         };
 
+        let start = std::time::Instant::now();
         let resp = reqwest::get(&format!("http://{}:{}/account/{}", consensor.ip, consensor.port, address)).await;
+        let duration = start.elapsed().as_millis();
+
+        self.set_consensor_trip_ms(consensor.id, duration);
 
         match resp{
             Ok(resp) => {
@@ -309,12 +311,17 @@ impl  Liberdus {
 
     pub async fn get_transaction_receipt(&self, id: String) -> Result<serde_json::Value, serde_json::Value>{
 
-        let consensor = match self.get_random_consensor_biased().await {
-            Some(consensor) => consensor,
+        let (index, consensor) = match self.get_random_consensor_biased().await {
+            Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
         };
 
+        let start = std::time::Instant::now();
         let resp = reqwest::get(&format!("http://{}:{}/transaction/{}", consensor.ip, consensor.port, id)).await;
+
+        let duration = start.elapsed().as_millis();
+
+        self.set_consensor_trip_ms(consensor.id, duration);
 
         match resp{
             Ok(resp) => {
@@ -330,12 +337,18 @@ impl  Liberdus {
     }
 
     pub async fn get_messages(&self, chat_id: String) -> Result<serde_json::Value, serde_json::Value>{
-        let consensor = match self.get_random_consensor_biased().await {
-            Some(consensor) => consensor,
+        let (index, consensor) = match self.get_next_appropriate_consensor().await {
+            Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
         };
 
+
+        let start = std::time::Instant::now();
         let resp = reqwest::get(&format!("http://{}:{}/messages/{}", consensor.ip, consensor.port, chat_id)).await;
+
+        let duration = start.elapsed().as_millis();
+
+        self.set_consensor_trip_ms(consensor.id, duration);
 
         match resp{
             Ok(resp) => {

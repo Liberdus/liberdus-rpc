@@ -19,7 +19,8 @@ pub struct CrossThreadSharedState {
 
 #[tokio::main]
 async fn main()  -> Result<(), std::io::Error>{
-    // console_subscriber::init();
+    // console_subscriber::init(); <- do not remove this line , this is important for debugging
+    // very bad for production though
     let _configs = config::Config::load().unwrap_or_else(|err| {
         eprintln!("Failed to load config: {}", err);
         std::process::exit(1);
@@ -38,10 +39,10 @@ async fn main()  -> Result<(), std::io::Error>{
 
 
     
-    let _liberdus = Arc::clone(&lbd);
     let _archivers = Arc::clone(&arch_utils);
 
 
+    let _liberdus = Arc::clone(&lbd);
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(_configs.nodelist_refresh_interval_sec));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -49,8 +50,7 @@ async fn main()  -> Result<(), std::io::Error>{
         loop {
             ticker.tick().await;
             Arc::clone(&_archivers).discover().await;
-            Arc::clone(&_liberdus).update_active_nodelist().await;
-    
+            _liberdus.update_active_nodelist().await;
         }
     });
 

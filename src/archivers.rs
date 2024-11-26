@@ -80,14 +80,20 @@ impl ArchiverUtil {
                     Err(_) => {},
                 }
             }
+
             tmp.dedup_by(|a, b| a.publicKey == b.publicKey);
-            let mut guard = long_lived_self.active_archivers.write().await;
-            *guard = tmp;
-            drop(guard);
+
+            let dump = tmp.clone();
+
+            {
+                let mut guard = long_lived_self.active_archivers.write().await;
+                *guard = tmp;
+                drop(guard);
+            }
 
             tokio::spawn(async move {
                 let mut file = tokio::fs::File::create("known_archiver_cache.json").await.unwrap();
-                let data = serde_json::to_string(&long_lived_self.active_archivers.read().await.clone()).unwrap();
+                let data = serde_json::to_string(&dump).unwrap();
                 file.write_all(data.as_bytes()).await.unwrap();
             });
         });
