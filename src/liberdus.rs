@@ -136,7 +136,7 @@ impl  Liberdus {
 
     // normalized method works best IMO after many simulation
     // it has more linear distribution of bias
-    // completely cut off node that are beyond max_timeout ie. 4sec, 5sec.
+    // completely cut off node that are beyond max_timeout ie. 4sec, 5sec or as configured.
     fn calculate_bias(&self, timetaken_ms: u128, max_timeout: u128) -> f64 {
         if max_timeout == 1 {
             return 1.0; // All timeouts are the same
