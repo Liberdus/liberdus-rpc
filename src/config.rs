@@ -1,5 +1,3 @@
-
-use std::env;
 use std::fs;
 
 #[derive(Debug, serde::Deserialize)]
@@ -9,6 +7,7 @@ pub struct Config{
     pub archiver_seed_path: String,
     pub nodelist_refresh_interval_sec: u64,
     pub debug: bool,
+    pub max_http_timeout_ms: u128,
 }
 
 
