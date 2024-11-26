@@ -23,7 +23,7 @@ pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: Arc<lib
     match params {
         Value::Array(values) if values.len() > 0 => {
             let tx_hash = values[0].as_str().unwrap().to_string();
-            match liberdus.get_transaction_receipt(tx_hash).await {
+            match liberdus.get_transaction_receipt(&tx_hash).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
                 Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
             }
@@ -41,7 +41,7 @@ pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liber
     match params {
         Value::Array(values) if values.len() > 0 => {
             let addr = values[0].as_str().unwrap().to_string();
-            match liberdus.get_account_by_addr(addr).await {
+            match liberdus.get_account_by_addr(&addr).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
                 Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
             }
@@ -59,7 +59,7 @@ pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: Arc<liberdus::Libe
     match params {
         Value::Array(values) if values.len() > 0 => {
             let chat_id = values[0].as_str().unwrap_or("").to_string();
-            match liberdus.get_messages(chat_id).await {
+            match liberdus.get_messages(&chat_id).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
                 Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
             }

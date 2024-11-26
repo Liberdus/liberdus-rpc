@@ -4,6 +4,7 @@ mod config;
 mod archivers;
 mod liberdus;
 mod crypto;
+mod collector;
 
 use std::sync::Arc;
 use std::fs;

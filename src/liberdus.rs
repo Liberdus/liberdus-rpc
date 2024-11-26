@@ -1,4 +1,4 @@
-use crate::archivers;
+use crate::{archivers, collector};
 use reqwest;
 use serde_json;
 use serde;
@@ -220,10 +220,10 @@ impl  Liberdus {
     pub async fn get_next_appropriate_consensor(&self) -> Option<(usize, Consensor)> {
         match self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) {
             true => {
-               self.get_random_consensor_biased().await 
+               return self.get_random_consensor_biased().await 
             },
             false => {
-                let index = self.round_robin_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let index = self.round_robin_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed).clone();
 
                 let nodes = self.active_nodelist.read().await;
                 if index >= nodes.len() {
@@ -256,7 +256,7 @@ impl  Liberdus {
             "tx": tx,
         });
 
-        let (index, consensor) = match self.get_next_appropriate_consensor().await {
+        let (_index, consensor) = match self.get_next_appropriate_consensor().await {
             Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
         };
@@ -284,9 +284,9 @@ impl  Liberdus {
         }
     }
 
-    pub async fn get_account_by_addr(&self, address: String) -> Result<serde_json::Value, serde_json::Value>{
+    pub async fn get_account_by_addr(&self, address: &String) -> Result<serde_json::Value, serde_json::Value>{
 
-        let (index, consensor) = match self.get_next_appropriate_consensor().await {
+        let (_index, consensor) = match self.get_next_appropriate_consensor().await {
             Some((index,consensor)) => (index,consensor),
             None => return Err("Failed to select consensor".into()),
         };
@@ -309,9 +309,20 @@ impl  Liberdus {
         }
     }
 
-    pub async fn get_transaction_receipt(&self, id: String) -> Result<serde_json::Value, serde_json::Value>{
+    pub async fn get_transaction_receipt(&self, id: &String) -> Result<serde_json::Value, serde_json::Value>{
 
-        let (index, consensor) = match self.get_random_consensor_biased().await {
+
+        // let receipt  = match collector::get_transaction(&id) {
+        //     Ok(receipt) => Ok(receipt),
+        //     Err(e) => Err(e.to_string().into()),
+        // };
+        //
+        // if let Ok(receipt) = receipt{
+        //     return Ok(receipt);
+        // }
+
+        // collector failed to fetch transaction let's fall back to consensors
+        let (_index, consensor) = match self.get_next_appropriate_consensor().await {
             Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
         };
@@ -336,8 +347,8 @@ impl  Liberdus {
         }
     }
 
-    pub async fn get_messages(&self, chat_id: String) -> Result<serde_json::Value, serde_json::Value>{
-        let (index, consensor) = match self.get_next_appropriate_consensor().await {
+    pub async fn get_messages(&self, chat_id: &String) -> Result<serde_json::Value, serde_json::Value>{
+        let (_index, consensor) = match self.get_next_appropriate_consensor().await {
             Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
         };
