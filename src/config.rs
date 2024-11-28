@@ -8,6 +8,14 @@ pub struct Config{
     pub nodelist_refresh_interval_sec: u64,
     pub debug: bool,
     pub max_http_timeout_ms: u128,
+    pub collector: CollectorConfig,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[derive(Clone)]
+pub struct CollectorConfig {
+    pub ip: String,
+    pub port: u16,
 }
 
 

@@ -43,9 +43,13 @@ async fn main()  -> Result<(), std::io::Error>{
     let _archivers = Arc::clone(&arch_utils);
     let _liberdus = Arc::clone(&lbd);
 
+    // discover nodes first time around
+    Arc::clone(&_archivers).discover().await;
+    _liberdus.update_active_nodelist().await;
+
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(_configs.nodelist_refresh_interval_sec));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     
         loop {
             ticker.tick().await;

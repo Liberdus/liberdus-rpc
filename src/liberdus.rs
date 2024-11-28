@@ -328,18 +328,14 @@ impl  Liberdus {
     }
 
     pub async fn get_transaction_receipt(&self, id: &String) -> Result<serde_json::Value, serde_json::Value>{
+        
+        let receipt  = collector::get_transaction(&self.config.collector.ip, &self.config.collector.port, &id).await;
 
+        if let Some(receipt) = receipt {
+            return Ok(receipt)
+        }
 
-        // let receipt  = match collector::get_transaction(&id) {
-        //     Ok(receipt) => Ok(receipt),
-        //     Err(e) => Err(e.to_string().into()),
-        // };
-        //
-        // if let Ok(receipt) = receipt{
-        //     return Ok(receipt);
-        // }
-
-        // collector failed to fetch transaction let's fall back to consensors
+        
         let (_index, consensor) = match self.get_next_appropriate_consensor().await {
             Some((index, consensor)) => (index, consensor),
             None => return Err("Failed to select consensor".into()),
@@ -452,7 +448,7 @@ mod tests {
 
         println!("Cumulative weight {}", liberdus.load_distribution_commulative_bias.read().await.last().unwrap());
 
-        for i in 0..3000 {
+        for _i in 0..3000 {
             let (index, _) = liberdus.get_random_consensor_biased().await.unwrap();
             println!("{}", index);
             assert_eq!(true, true);

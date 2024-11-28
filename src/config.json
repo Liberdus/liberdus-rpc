@@ -3,5 +3,9 @@
     "archiver_seed_path": "./src/archiver_seed.json",
     "nodelist_refresh_interval_sec": 40,
     "max_http_timeout_ms": 4000,
-    "debug": true
+    "debug": true,
+    "collector": {
+        "port": 6101,
+        "ip": "0.0.0.0"
+    }
 }
