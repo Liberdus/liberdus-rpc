@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 
-pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse  {
+pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse  {
     let params = req.params.unwrap_or(Value::Null);
     match params {
         Value::Array(values) if values.len() > 0 => {
@@ -18,7 +18,7 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: Arc<liberdus::
     }
 }
 
-pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = req.params.unwrap_or(Value::Null);
     match params {
         Value::Array(values) if values.len() > 0 => {
@@ -32,7 +32,7 @@ pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: Arc<lib
     }
 }
 
-pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
         None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
@@ -50,7 +50,7 @@ pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liber
     }
 }
 
-pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
         None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
