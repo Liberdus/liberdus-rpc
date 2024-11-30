@@ -64,7 +64,8 @@ async fn main()  -> Result<(), std::io::Error>{
 
 
     let app = Route::new()
-        .at("/", poem::post(rpc::rpc_handler))
+        .at("/", poem::post(rpc::http_rpc_handler))
+        .at("/ws", poem::get(rpc::ws_rpc_handler))
         .data(state);
     
     let pid = std::process::id();
