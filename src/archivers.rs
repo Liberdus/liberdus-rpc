@@ -67,7 +67,7 @@ impl ArchiverUtil {
         cache.extend(self.seed_list.read().await.clone());
         cache.dedup_by(|a, b| a.publicKey == b.publicKey);
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<Archiver>, std::io::Error>>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<Vec<Archiver>, std::io::Error>>();
 
         let long_lived_self = self.clone();
         tokio::spawn(async move {
@@ -123,7 +123,7 @@ impl ArchiverUtil {
                         Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid response"))
                     }
                 };
-                let _ = transmitter.send(resp).await;
+                let _ = transmitter.send(resp);
                 drop(transmitter);
             });
         }

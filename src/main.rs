@@ -20,7 +20,7 @@ pub struct CrossThreadSharedState {
 
 #[tokio::main]
 async fn main()  -> Result<(), std::io::Error>{
-    // console_subscriber::init(); <- do not remove this line , this is important for debugging
+    // console_subscriber::init(); //<- do not remove this line , this is important for debugging
     // very bad for production though
     let _configs = config::Config::load().unwrap_or_else(|err| {
         eprintln!("Failed to load config: {}", err);
@@ -55,6 +55,7 @@ async fn main()  -> Result<(), std::io::Error>{
             ticker.tick().await;
             Arc::clone(&_archivers).discover().await;
             _liberdus.update_active_nodelist().await;
+            Arc::clone(&_liberdus).discover_new_chats().await;
         }
     });
 
