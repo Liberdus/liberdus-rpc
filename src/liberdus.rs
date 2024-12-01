@@ -6,6 +6,9 @@ use rand::prelude::*;
 use std::{cmp::Ordering, collections::HashMap, sync::{atomic::{AtomicBool, AtomicU8, AtomicUsize}, Arc}};
 use tokio::sync::RwLock;
 use crate::crypto;
+use std::collections::HashSet;
+use crate::rpc;
+
 
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -48,6 +51,7 @@ pub struct Liberdus {
     list_prepared: Arc<AtomicBool>,
     crypto: Arc<crypto::ShardusCrypto>,
     load_distribution_commulative_bias: Arc<RwLock<Vec<f64>>>,
+    pub chat_room_subscriptions: Arc<RwLock<ChatRoomSubscriptionData>>,
     config: Arc<config::Config>,
 }
 
@@ -64,6 +68,16 @@ pub struct GetTransactionResp{
     transaction: Option<serde_json::Value>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ChatAccount {
+    hash: String,
+    id: String,
+    messages: Vec<serde_json::Value>,
+    timestamp: u128,
+    #[serde(rename = "type")] // Map JSON "type" to the Rust field "type_field"
+    type_field: String,
+}
+
 impl  Liberdus {
     pub fn new (sc: Arc<crypto::ShardusCrypto>, archivers: Arc<RwLock<Vec<archivers::Archiver>>>, config: config::Config) -> Self{
         Liberdus{
@@ -75,7 +89,15 @@ impl  Liberdus {
             archivers,
             crypto: sc,
             load_distribution_commulative_bias: Arc::new(RwLock::new(Vec::new())),
+            chat_room_subscriptions: Arc::new(RwLock::new(ChatRoomSubscriptionData{
+                subscriptions: HashMap::new(),
+                subscribed_chats: HashMap::new(),
+                chat_room_by_sub_id: HashMap::new(),
+                last_chat_states: HashMap::new(),
+            })),
         }
+
+
     }
 
     pub async fn update_active_nodelist(&self){
@@ -398,7 +420,151 @@ impl  Liberdus {
         self.crypto.verify(&hash, &sodiumoxide::hex::decode(&signed_payload.sign.sig).unwrap().to_vec(), &pk)
 
     }
+
+    pub async fn subscribe_chat_room(&self, chat_id: &String, sub_id: &String, sender: tokio::sync::mpsc::UnboundedSender<serde_json::Value>){
+
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+        let mut guard = self.chat_room_subscriptions.write().await;
+        guard.subscriptions.insert(sub_id.clone(), sender);
+        guard.subscribed_chats.entry(chat_id.clone()).or_insert(HashSet::new()).insert(sub_id.clone());
+        guard.chat_room_by_sub_id.insert(sub_id.clone(), chat_id.clone());
+        guard.last_chat_states.insert(chat_id.clone(), (now, 0));
+
+    }
+
+    pub async fn unsubscribe_chat_room(&self, sub_id: &String){
+        let mut guard = self.chat_room_subscriptions.write().await;
+        guard.subscriptions.remove(sub_id);
+        let chat_id = guard.chat_room_by_sub_id.remove(sub_id).unwrap();
+        guard.subscribed_chats.get_mut(&chat_id).unwrap().remove(sub_id);
+        guard.chat_room_by_sub_id.remove(sub_id);
+        guard.last_chat_states.remove(&chat_id);
+
+    }
+
+    pub async fn get_last_chat_state(&self, chat_id: &String) -> (u128, usize){
+        let guard = self.chat_room_subscriptions.read().await;
+        *guard.last_chat_states.get(chat_id).unwrap_or(&(0, 0))
+    }
+
+    pub async fn get_subscriber(&self, sub_id: &String) -> Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>{
+        let guard = self.chat_room_subscriptions.read().await;
+        guard.subscriptions.get(sub_id).cloned()
+    }
+
+    pub async fn get_chat_room_subscriptions(&self, chat_id: &String) -> Option<HashSet<String>>{
+        let guard = self.chat_room_subscriptions.read().await;
+        guard.subscribed_chats.get(chat_id).cloned()
+    }
+
+    pub async fn discover_new_chats(self: Arc<Self>){
+        if self.chat_room_subscriptions.read().await.subscriptions.len() <= 0 {
+            return;
+        }
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<serde_json::Value, serde_json::Value>>();
+
+        let long_lived_self = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut bad_subscriptions = Vec::new();
+            let mut new_chat_states = HashMap::new();
+            while let Some(msg) = rx.recv().await {
+                match msg{
+                    Ok(msg) => {
+                        let resp: ChatAccount = serde_json::from_value(msg).unwrap();
+                        let new_timestamp = resp.timestamp;
+
+                        let (timestamp, index) = long_lived_self.get_last_chat_state(&resp.id).await;
+                        let indices_to_pop_from_the_back = resp.messages.len() - index;
+
+                        if timestamp > new_timestamp {
+                            continue;
+                        }
+
+                        if indices_to_pop_from_the_back <= 0 {
+                            continue;
+                        }
+
+                        let subs = long_lived_self.get_chat_room_subscriptions(&resp.id).await.unwrap_or(HashSet::new());
+
+                        for sub in subs{
+                            let ws_sink_transmitter = long_lived_self.get_subscriber(&sub).await.unwrap();
+
+                            let payload = serde_json::json!({
+                                "subscription_id": sub,
+                                "new_message": resp.messages.clone().split_off(resp.messages.len() - indices_to_pop_from_the_back),
+                            });
+
+                            let rpc_resp = rpc::generate_success_response(1, payload);
+
+                            let json = serde_json::json!({
+                                "jsonrpc": rpc_resp.jsonrpc,
+                                "result": rpc_resp.result,
+                                "error": rpc_resp.error,
+                                "id": rpc_resp.id,
+                            });
+
+                            let client_disconnected = match ws_sink_transmitter.send(json) {
+                                Ok(_) => {
+                                   new_chat_states.insert(resp.id.clone(), (new_timestamp, resp.messages.len()));
+                                   false
+                                },
+                                Err(_e) => {
+                                    true
+                                }
+                            };
+
+                            if client_disconnected{
+                                drop(ws_sink_transmitter);
+                                bad_subscriptions.push(sub);
+                            }
+                        }
+
+
+                    },
+                    Err(e) => {
+                        println!("Error: {}", e);
+                    }
+                }
+
+            }
+            for sub in bad_subscriptions{
+                long_lived_self.unsubscribe_chat_room(&sub).await;
+            }
+            for (chat_id, (timestamp, index)) in new_chat_states{
+                let mut guard = long_lived_self.chat_room_subscriptions.write().await;
+                guard.last_chat_states.insert(chat_id, (timestamp, index));
+                drop(guard);
+            }
+        });
+
+        let chat_room_addresses = self.chat_room_subscriptions.read().await
+                                        .subscribed_chats.keys().cloned().collect::<Vec<String>>();
+
+        for chat_room_address in chat_room_addresses{
+            let tx_clone = tx.clone();
+            let self_cloned = Arc::clone(&self);
+            tokio::spawn(async move {
+                let resp = self_cloned.get_account_by_addr(&chat_room_address).await;
+                let _ = tx_clone.send(resp);
+            });
+        }
+
+    }
+
+
+
 }
+
+type SubscriptionId = String;
+type ChatRoomAddress = String;
+pub struct ChatRoomSubscriptionData{
+   subscriptions: HashMap<SubscriptionId, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>, 
+   subscribed_chats: HashMap<ChatRoomAddress, HashSet<SubscriptionId>>,
+   chat_room_by_sub_id: HashMap<SubscriptionId, ChatRoomAddress>,
+   last_chat_states: HashMap<ChatRoomAddress, (u128, usize)>,
+}
+
 
 
 // write tests
@@ -456,3 +622,6 @@ mod tests {
 
     }
 }
+
+
+
