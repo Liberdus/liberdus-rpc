@@ -383,6 +383,13 @@ impl  Liberdus {
         }
     }
 
+    pub async fn get_transaction_history(&self, account_id: &String) -> Result<serde_json::Value, serde_json::Value> {        
+        match collector::get_transaction_history(&self.config.collector.ip, &self.config.collector.port, &account_id).await {
+            Ok(result) => Ok(result),
+            Err(e) => Err(e.to_string().into()),
+        }
+    }
+
     pub async fn get_messages(&self, chat_id: &String) -> Result<serde_json::Value, serde_json::Value>{
         let (_index, consensor) = match self.get_next_appropriate_consensor().await {
             Some((index, consensor)) => (index, consensor),

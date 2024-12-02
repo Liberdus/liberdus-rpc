@@ -49,13 +49,36 @@ pub async fn get_transaction(collector_ip: &String, collector_port: &u16, id: &S
         },
         None => None,
     };
-
-
-    
 }
 
+pub async fn get_transaction_history(collector_ip: &String, collector_port: &u16, account_id: &String) -> Result<serde_json::Value, String> {
+    let built_url = format!("http://{}:{}/api/transaction?accountId={}", collector_ip, collector_port, account_id);
+    let resp = match reqwest::get(built_url).await {
+        Ok(resp) => resp,
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let result: TxResp = match resp.status() {
+        reqwest::StatusCode::OK => {
+            match resp.json().await {
+                Ok(json) => json,
+                Err(e) => return Err(e.to_string()),
+            }
+        },
+        status => return Err(format!("HTTP error: {}", status)),
+    };
+
+    if result.success.unwrap_or(false) {
+        let transactions: Vec<serde_json::Value> = result.transactions
+            .into_iter()
+            .map(|tx| tx.originalTxData)
+            .collect();
+        Ok(serde_json::json!({ "transactions": transactions }))
+    } else {
+        Err(result.error.unwrap_or_else(|| "Unknown error".to_string()))
+    }
+}
 
 pub async fn get_message() {
     todo!()
 }
-

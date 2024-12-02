@@ -32,6 +32,24 @@ pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: &Arc<li
     }
 }
 
+pub async fn lib_get_transaction_history(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+    let params = match req.params {
+        Some(params) => params,
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+    };
+
+    match params {
+        Value::Array(values) if values.len() > 0 => {
+            let account_id = values[0].as_str().unwrap_or("").to_string();
+            match liberdus.get_transaction_history(&account_id).await {
+                Ok(result) => rpc::generate_success_response(req.id, result),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+            }
+        }
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+    }
+}
+
 pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
