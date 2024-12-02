@@ -59,6 +59,7 @@ async fn rpc_handler(
         "lib_sendTransaction" => methods::lib_send_transaction(req, liberdus).await, 
         "lib_getAccount" => methods::lib_get_account(req, liberdus).await,
         "lib_getTransactionReceipt" => methods::lib_get_transaction_receipt(req, liberdus).await,
+        "lib_getTransactionHistory" => methods::lib_get_transaction_history(req, liberdus).await,
         "lib_getMessages" => methods::lib_get_messages(req, liberdus).await,
         "lib_subscribe" => methods::lib_subscribe(req, liberdus, transmitter, subscription_id).await,
         "lib_unsubscribe" => methods::lib_unsubscribe(req, liberdus).await,
