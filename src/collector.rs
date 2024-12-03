@@ -17,7 +17,14 @@ struct TxResp {
 #[derive(serde::Deserialize)]
 struct Transaction {
     #[allow(non_snake_case)]
-    originalTxData: serde_json::Value,
+    originalTxData: OriginalTxData,
+    txId: String,
+}
+
+#[derive(serde::Deserialize)]
+#[derive(Clone)]
+struct OriginalTxData {
+    tx: serde_json::Value,
 }
 
 pub async fn get_transaction(collector_ip: &String, collector_port: &u16, id: &String) -> Option<serde_json::Value> {
@@ -42,7 +49,7 @@ pub async fn get_transaction(collector_ip: &String, collector_port: &u16, id: &S
    return match result {
         Some(result) => {
             if result.success? && result.transactions.len() > 0 {
-                Some(result.transactions[0].originalTxData.clone())
+                Some(result.transactions[0].originalTxData.tx.clone())
             } else {
                 None
             }
@@ -69,10 +76,12 @@ pub async fn get_transaction_history(collector_ip: &String, collector_port: &u16
     };
 
     if result.success.unwrap_or(false) {
-        let transactions: Vec<serde_json::Value> = result.transactions
-            .into_iter()
-            .map(|tx| tx.originalTxData)
-            .collect();
+        let transactions = result.transactions.iter().map(|tx| {
+            let original_tx_data = tx.originalTxData.tx.clone();
+            let tx_id = tx.txId.clone();
+
+            insert_field(original_tx_data, "txId", serde_json::json!(tx_id))
+        }).collect::<Vec<serde_json::Value>>();
         Ok(serde_json::json!({ "transactions": transactions }))
     } else {
         Err(result.error.unwrap_or_else(|| "Unknown error".to_string()))
@@ -82,3 +91,11 @@ pub async fn get_transaction_history(collector_ip: &String, collector_port: &u16
 pub async fn get_message() {
     todo!()
 }
+
+fn insert_field(mut obj: serde_json::Value, key: &str, value: serde_json::Value) -> serde_json::Value {
+    if let Some(map) = obj.as_object_mut() {
+        map.insert(key.to_string(), value);
+    }
+    obj
+}
+
