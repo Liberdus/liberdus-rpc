@@ -67,7 +67,14 @@ async fn main()  -> Result<(), std::io::Error>{
     let app = Route::new()
         .at("/", poem::post(rpc::http_rpc_handler))
         .at("/ws", poem::get(rpc::ws_rpc_handler))
-        .data(state);
+        .data(state)
+        .with(
+            poem::middleware::Cors::new()
+            .allow_origin("*") 
+            .allow_methods(vec!["GET", "POST"]) 
+            .allow_headers(vec!["Content-Type", "Authorization"]) 
+            .allow_credentials(false), 
+        );
     
     let pid = std::process::id();
 
