@@ -63,18 +63,13 @@ async fn main()  -> Result<(), std::io::Error>{
         liberdus: lbd,
     };
 
+    let cors = poem::middleware::Cors::new();
 
     let app = Route::new()
         .at("/", poem::post(rpc::http_rpc_handler))
         .at("/ws", poem::get(rpc::ws_rpc_handler))
-        .data(state)
-        .with(
-            poem::middleware::Cors::new()
-            .allow_origin("*") 
-            .allow_methods(vec!["GET", "POST"]) 
-            .allow_headers(vec!["Content-Type", "Authorization"]) 
-            .allow_credentials(false), 
-        );
+        .with(cors)
+        .data(state);
     
     let pid = std::process::id();
 
