@@ -128,7 +128,14 @@ impl  Liberdus {
             };
 
             match collected_nodelist{
-                Ok(nodelist) => {
+                Ok(mut nodelist) => {
+                    if self.config.standalone_network.enabled {
+                        let replacement_ip = self.config.standalone_network.replacement_ip.clone();
+                        for node in nodelist.iter_mut(){
+                            node.ip = replacement_ip.clone();
+                        }
+                    }
+
                     {
                        let mut guard = self.active_nodelist.write().await; 
                        *guard = nodelist;
