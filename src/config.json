@@ -7,5 +7,9 @@
     "collector": {
         "port": 6101,
         "ip": "0.0.0.0"
+    },
+    "standalone_network": {
+        "enabled":  false,
+        "replacement_ip": "69.197.162.234"
     }
 }

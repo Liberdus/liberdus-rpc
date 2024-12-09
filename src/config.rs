@@ -9,7 +9,10 @@ pub struct Config{
     pub debug: bool,
     pub max_http_timeout_ms: u128,
     pub collector: CollectorConfig,
+    pub standalone_network: StandaloneNetworkConfig,
 }
+
+
 
 #[derive(Debug, serde::Deserialize)]
 #[derive(Clone)]
@@ -18,6 +21,16 @@ pub struct CollectorConfig {
     pub port: u16,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[derive(Clone)]
+/// Standalone network mean that consensus node and archivers reside within same server.
+/// This mean archiver will returns node list with loopback ip address 0.0.0.0, 127.0.0.1, localhost.
+/// When rpc is on a separate machine, loopback ips of nodes will not work.
+/// Usually standalone network config are for testnets. Should not be used in productions
+pub struct StandaloneNetworkConfig {
+    pub replacement_ip: String,
+    pub enabled: bool,
+}
 
 impl Config {
     pub fn load() -> Result<Self, String> {
