@@ -44,7 +44,7 @@ struct TxInjectResp{
 }
 
 pub struct Liberdus {
-    active_nodelist: Arc<RwLock<Vec<Consensor>>>,
+    pub active_nodelist: Arc<RwLock<Vec<Consensor>>>,
     trip_ms: Arc<RwLock<HashMap<String, u128>>>,
     archivers: Arc<RwLock<Vec<archivers::Archiver>>>,
     round_robin_index: Arc<AtomicUsize>,

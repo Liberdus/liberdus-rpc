@@ -43,6 +43,8 @@ async fn main()  -> Result<(), std::io::Error>{
     let _liberdus = Arc::clone(&lbd);
 
     tokio::spawn(async move {
+        Arc::clone(&_archivers).discover().await;
+        _liberdus.update_active_nodelist().await;
         let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(_configs.nodelist_refresh_interval_sec));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     
@@ -59,6 +61,13 @@ async fn main()  -> Result<(), std::io::Error>{
     };
 
     let cors = poem::middleware::Cors::new();
+
+    println!("Waiting for active nodelist to be populated.....");
+    loop {
+        if Arc::clone(&state.liberdus).active_nodelist.read().await.len() > 0 {
+            break;
+        }
+    }
 
     let app = Route::new()
         .at("/", poem::post(rpc::http_rpc_handler))
