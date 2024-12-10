@@ -35,17 +35,12 @@ async fn main()  -> Result<(), std::io::Error>{
 
     let crypto = Arc::new(crypto::ShardusCrypto::new("69fa4195670576c0160d660c3be36556ff8d504725be8a59b5a96509e0c994bc"));
 
-    let arch_utils = Arc::new(archivers::ArchiverUtil::new(crypto.clone(), archiver_seed));
+    let arch_utils = Arc::new(archivers::ArchiverUtil::new(crypto.clone(), archiver_seed, _configs.clone()));
+
     let lbd = Arc::new(liberdus::Liberdus::new(crypto.clone(), arch_utils.get_active_archivers(), _configs.clone()));
-
-
     
     let _archivers = Arc::clone(&arch_utils);
     let _liberdus = Arc::clone(&lbd);
-
-    // discover nodes first time around
-    Arc::clone(&_archivers).discover().await;
-    _liberdus.update_active_nodelist().await;
 
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(_configs.nodelist_refresh_interval_sec));
