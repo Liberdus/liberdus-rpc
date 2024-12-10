@@ -102,7 +102,7 @@ impl  Liberdus {
 
     pub async fn update_active_nodelist(&self){
 
-        let archivers = self.archivers.read().await.clone();
+        let archivers = self.archivers.read().await;
 
         for archiver in archivers.iter(){
             let url = format!("http://{}:{}/full-nodelist?activeOnly=true", archiver.ip, archiver.port);

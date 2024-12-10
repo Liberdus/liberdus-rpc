@@ -9,7 +9,7 @@
         "ip": "0.0.0.0"
     },
     "standalone_network": {
-        "enabled":  false,
+        "enabled":  true,
         "replacement_ip": "69.197.162.234"
     }
 }
