@@ -44,7 +44,7 @@ struct TxInjectResp{
 }
 
 pub struct Liberdus {
-    active_nodelist: Arc<RwLock<Vec<Consensor>>>,
+    pub active_nodelist: Arc<RwLock<Vec<Consensor>>>,
     trip_ms: Arc<RwLock<HashMap<String, u128>>>,
     archivers: Arc<RwLock<Vec<archivers::Archiver>>>,
     round_robin_index: Arc<AtomicUsize>,
@@ -102,7 +102,7 @@ impl  Liberdus {
 
     pub async fn update_active_nodelist(&self){
 
-        let archivers = self.archivers.read().await.clone();
+        let archivers = self.archivers.read().await;
 
         for archiver in archivers.iter(){
             let url = format!("http://{}:{}/full-nodelist?activeOnly=true", archiver.ip, archiver.port);
@@ -128,7 +128,14 @@ impl  Liberdus {
             };
 
             match collected_nodelist{
-                Ok(nodelist) => {
+                Ok(mut nodelist) => {
+                    if self.config.standalone_network.enabled {
+                        let replacement_ip = self.config.standalone_network.replacement_ip.clone();
+                        for node in nodelist.iter_mut(){
+                            node.ip = replacement_ip.clone();
+                        }
+                    }
+
                     {
                        let mut guard = self.active_nodelist.write().await; 
                        *guard = nodelist;

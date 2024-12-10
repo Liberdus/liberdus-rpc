@@ -1,4 +1,5 @@
 use reqwest;
+use crate::config;
 use sodiumoxide;
 use tokio::{io::AsyncWriteExt, sync::RwLock};
 use crate::crypto::ShardusCrypto;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 use std::fs;
 
 pub struct ArchiverUtil {
+    config: config::Config,
     seed_list: Arc<RwLock<Vec<Archiver>>>,
     active_archivers: Arc<RwLock<Vec<Archiver>>>,
     crypto: Arc<ShardusCrypto>,
@@ -43,8 +45,9 @@ pub struct Signature {
 }
 
 impl ArchiverUtil {
-    pub fn new(sc: Arc<ShardusCrypto>, seed: Vec<Archiver>) -> Self {
+    pub fn new(sc: Arc<ShardusCrypto>, seed: Vec<Archiver>, config: config::Config) -> Self {
         ArchiverUtil { 
+            config,
             seed_list: Arc::new(RwLock::new(seed)),
             active_archivers: Arc::new(RwLock::new(Vec::new())),
             crypto: sc,
@@ -81,7 +84,15 @@ impl ArchiverUtil {
                 }
             }
 
+
             tmp.dedup_by(|a, b| a.publicKey == b.publicKey);
+
+
+            if long_lived_self.config.standalone_network.enabled {
+                for archiver in tmp.iter_mut() {
+                    archiver.ip = long_lived_self.config.standalone_network.replacement_ip.clone();
+                }
+            }
 
             let dump = tmp.clone();
 
