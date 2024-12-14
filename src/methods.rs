@@ -1,6 +1,7 @@
 use crate::{liberdus, rpc::{self, RpcRequest}};
 use serde_json::Value;
 use std::sync::Arc;
+use rand::prelude::*;
 
 
 pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse  {
@@ -8,10 +9,32 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
     match params {
         Value::Array(values) if values.len() > 0 => {
             let tx = values[0].clone();
-            match liberdus.inject_transaction(tx).await {
-                Ok(result) => return rpc:: generate_success_response(req.id, result),
-                Err(e) => return rpc::generate_error_response(req.id, e.to_string().into()),
+            // match liberdus.inject_transaction(tx).await {
+            //     Ok(result) => return rpc::generate_success_response(req.id, result),
+            //     Err(e) => return rpc::generate_error_response(req.id, e.to_string().into()),
+            // };
+            let max_retry = {
+                let mut rng = rand::thread_rng();
+                rng.gen_range(3..5)
             };
+            for _ in 0..max_retry {
+                match liberdus.inject_transaction(tx.clone()).await {
+                    Ok(result) => {
+                        let parsed_result: liberdus::TxInjectRespInner = serde_json::from_value(result.clone()).unwrap();
+                        if parsed_result.success {
+                            return rpc::generate_success_response(req.id, result);
+                        }
+                        else {
+                            continue;
+                        }
+                    },
+                    Err(_) => {
+                        continue;
+                    },
+                }
+            }
+
+            rpc::generate_error_response(req.id, "Failed to inject transaction".into())
 
         }
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),

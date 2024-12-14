@@ -38,9 +38,17 @@ pub struct Signature {
     pub sig: String,
 }
 #[derive(serde::Deserialize, serde::Serialize)]
-struct TxInjectResp{
-    result: Option<serde_json::Value>,
-    error: Option<serde_json::Value>
+pub struct TxInjectResp{
+    pub result: Option<TxInjectRespInner>,
+    pub error: Option<serde_json::Value>
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct TxInjectRespInner{
+    pub reason: String,
+    pub status: u32,
+    pub success: bool,
+    pub txId: Option<String>,
 }
 
 pub struct Liberdus {
@@ -141,6 +149,7 @@ impl  Liberdus {
                        *guard = nodelist;
                     }
 
+                   self.round_robin_index.store(0, std::sync::atomic::Ordering::Relaxed);
                    // inititally node list does not contain load data.
                    self.list_prepared.store(false, std::sync::atomic::Ordering::Relaxed);
                     {
@@ -241,10 +250,12 @@ impl  Liberdus {
             }
 
             let mut rng = thread_rng();
-            let total_bias = *cumulative_weights.last().unwrap();
+            let total_bias = *cumulative_weights.last().unwrap_or(&1.0);
             let random_value: f64 = rng.gen_range(0.0..total_bias);
 
-            let index = match cumulative_weights.binary_search_by(|&bias| bias.partial_cmp(&random_value).unwrap()) {
+            let index = match cumulative_weights.binary_search_by(
+                |&bias| bias.partial_cmp(&random_value).unwrap_or(Ordering::Equal)
+            ) {
                 Ok(i) => i,      // Exact match
                 Err(i) => i,     // Closest match (next higher value)
             };
@@ -265,7 +276,7 @@ impl  Liberdus {
         if self.active_nodelist.read().await.is_empty() {
             return None;
         }
-        match self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) {
+        match self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) && self.load_distribution_commulative_bias.read().await.clone().len() > 0 {
             true => {
                return self.get_random_consensor_biased().await 
             },
@@ -314,19 +325,19 @@ impl  Liberdus {
             .send()
             .await;
         let duration = start.elapsed().as_millis();
-
-        self.set_consensor_trip_ms(consensor.id, duration);
+        self.set_consensor_trip_ms(consensor.id.clone(), duration);
         
         match resp{
             Ok(resp) => {
                 let body: TxInjectResp = resp.json().await.unwrap();
                 if let Some(result) = body.result{
-                    Ok(result)
+                    Ok(serde_json::to_value(result).unwrap())
                 }
                 else{
                     Err(body.error.unwrap())
                 }
             },
+
             Err(e) => Err(e.to_string().into()),
         }
     }
