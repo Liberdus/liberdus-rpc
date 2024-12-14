@@ -17,7 +17,8 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
                 let mut rng = rand::thread_rng();
                 rng.gen_range(3..5)
             };
-            for _ in 0..max_retry {
+            let mut counter = 0;
+            loop {
                 match liberdus.inject_transaction(tx.clone()).await {
                     Ok(result) => {
                         let parsed_result: liberdus::TxInjectRespInner = serde_json::from_value(result.clone()).unwrap();
@@ -25,16 +26,27 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
                             return rpc::generate_success_response(req.id, result);
                         }
                         else {
-                            continue;
+                            if counter < max_retry {
+                                counter += 1;
+                                continue;
+                            }
+                            else {
+                                return rpc::generate_success_response(req.id, result);
+                            }
                         }
                     },
-                    Err(_) => {
-                        continue;
+                    Err(e) => {
+                        if counter < max_retry {
+                            counter += 1;
+                            continue;
+                        }
+                        else {
+                            return rpc::generate_error_response(req.id, e.to_string().into());
+                        }
                     },
                 }
             }
 
-            rpc::generate_error_response(req.id, "Failed to inject transaction".into())
 
         }
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
