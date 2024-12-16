@@ -83,7 +83,7 @@ async fn main()  -> Result<(), std::io::Error>{
     );
     println!("Process ID: {}", pid);
     Server::new(TcpListener::bind((
-        "127.0.0.1",
+        "0.0.0.0",
         _configs.rpc_http_port,
     )))
     .run(app)
