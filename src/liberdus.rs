@@ -3,7 +3,7 @@ use reqwest;
 use serde_json;
 use serde;
 use rand::prelude::*;
-use std::{cmp::Ordering, collections::HashMap, sync::{atomic::{AtomicBool, AtomicU8, AtomicUsize}, Arc}};
+use std::{cmp::Ordering, collections::HashMap, sync::{atomic::{AtomicBool, AtomicUsize}, Arc}};
 use tokio::sync::RwLock;
 use crate::crypto;
 use std::collections::HashSet;
@@ -48,6 +48,7 @@ pub struct TxInjectRespInner{
     pub reason: String,
     pub status: u32,
     pub success: bool,
+    #[allow(non_snake_case)]
     pub txId: Option<String>,
 }
 

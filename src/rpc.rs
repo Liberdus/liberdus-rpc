@@ -3,14 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use poem::{handler, web::{ Data, Json }};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::collections::HashMap;
-
 use crate::{ CrossThreadSharedState, methods, liberdus };
-
-pub type WebScoketManager = Arc<RwLock<HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RpcRequest {
@@ -24,8 +19,14 @@ pub struct RpcRequest {
 pub struct RpcResponse {
     pub jsonrpc: String,
     pub result: Option<Value>,
-    pub error: Option<String>,
+    pub error: Option<RpcError>,
     pub id: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RpcError{
+    code: i32,
+    message: String,
 }
 
 pub fn generate_success_response(id: u32, result: Value) -> RpcResponse {
@@ -37,11 +38,14 @@ pub fn generate_success_response(id: u32, result: Value) -> RpcResponse {
     }
 }
 
-pub fn generate_error_response(id: u32, error_msg: String) -> RpcResponse {
+pub fn generate_error_response(id: u32, error_msg: String, code: i32) -> RpcResponse {
     RpcResponse {
         jsonrpc: "2.0".to_string(),
         result: None,
-        error: Some(error_msg),
+        error: Some(RpcError{
+            code,
+            message: error_msg,
+        }),
         id,
     }
 }
@@ -63,7 +67,7 @@ async fn rpc_handler(
         "lib_getMessages" => methods::lib_get_messages(req, liberdus).await,
         "lib_subscribe" => methods::lib_subscribe(req, liberdus, transmitter, subscription_id).await,
         "lib_unsubscribe" => methods::lib_unsubscribe(req, liberdus).await,
-        _ => generate_error_response(id, "Method not found".to_string()),
+        _ => generate_error_response(id, "Method not found".to_string(), -32601),
     };
 
     Json(result)
@@ -110,7 +114,7 @@ pub async fn ws_rpc_handler (
             let req: RpcRequest = match serde_json::from_str(&msg) {
                 Ok(req) => req,
                 Err(_) => {
-                    let resp = generate_error_response(1, "Invalid JSON".to_string());
+                    let resp = generate_error_response(1, "Invalid JSON".to_string(), -32700);
                     let json = serde_json::json!({
                         "jsonrpc": resp.jsonrpc,
                         "result": resp.result,

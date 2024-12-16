@@ -31,7 +31,7 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
                                 continue;
                             }
                             else {
-                                return rpc::generate_success_response(req.id, result);
+                                return rpc::generate_error_response(req.id, parsed_result.reason.into(), -32600);
                             }
                         }
                     },
@@ -41,7 +41,7 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
                             continue;
                         }
                         else {
-                            return rpc::generate_error_response(req.id, e.to_string().into());
+                            return rpc::generate_error_response(req.id, e.to_string().into(), -32600);
                         }
                     },
                 }
@@ -49,7 +49,7 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
 
 
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
@@ -60,17 +60,17 @@ pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: &Arc<li
             let tx_hash = values[0].as_str().unwrap().to_string();
             match liberdus.get_transaction_receipt(&tx_hash).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
-                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into(), -32600),
             }
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
 pub async fn lib_get_transaction_history(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
-        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     };
 
     match params {
@@ -78,17 +78,17 @@ pub async fn lib_get_transaction_history(req: rpc::RpcRequest, liberdus: &Arc<li
             let account_id = values[0].as_str().unwrap_or("").to_string();
             match liberdus.get_transaction_history(&account_id).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
-                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into(), -32600),
             }
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
 pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
-        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     };
 
     match params {
@@ -96,17 +96,17 @@ pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
             let addr = values[0].as_str().unwrap().to_string();
             match liberdus.get_account_by_addr(&addr).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
-                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into(), -32600),
             }
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
 pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
-        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     };
 
     match params {
@@ -114,10 +114,10 @@ pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Lib
             let chat_id = values[0].as_str().unwrap_or("").to_string();
             match liberdus.get_messages(&chat_id).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
-                Err(e) => rpc::generate_error_response(req.id, e.to_string().into()),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into(), -32600),
             }
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
@@ -125,20 +125,20 @@ pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Lib
 pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>, transmitter: Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>, subscription_id: Option<String>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
-        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     };
 
     if transmitter.is_none() {
-        return rpc::generate_error_response(req.id, "Use Websocket".into());
+        return rpc::generate_error_response(req.id, "Use Websocket".into(), -32600);
     }
 
     if subscription_id.is_none() {
-        return rpc::generate_error_response(req.id, "Invalid subscription id".into());
+        return rpc::generate_error_response(req.id, "Invalid subscription id".into(), -32600);
     }
 
     let sub_id = match subscription_id {
         Some(sub_id) => sub_id,
-        _ => return rpc::generate_error_response(req.id, "Invalid subscription id".into()),
+        _ => return rpc::generate_error_response(req.id, "Invalid subscription id".into(), -32600),
     };
 
 
@@ -151,7 +151,7 @@ pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberd
             rpc::generate_success_response(req.id, sub_id.clone().into())
 
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
@@ -159,7 +159,7 @@ pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberd
 pub async fn lib_unsubscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
-        None => return rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        None => return rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     };
 
     match params {
@@ -171,6 +171,6 @@ pub async fn lib_unsubscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
             rpc::generate_success_response(req.id, serde_json::Value::Bool(true))
 
         }
-        _ => rpc::generate_error_response(req.id, "Invalid parameters".into()),
+        _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
