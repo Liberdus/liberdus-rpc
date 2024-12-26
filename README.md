@@ -44,11 +44,8 @@ src/config.json
 }
 ```
 
-- Run RPC
-  ./target/debug/liberdus-rpc  
-
-- Verify RPC
-
+- Run RPC  
+  cargo run
 
 ---
 
