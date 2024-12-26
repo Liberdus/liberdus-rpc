@@ -17,10 +17,17 @@ Liberdus RPC is a multi threaded server that route traffic between clients and l
   cd liberdus-rpc-main
 
 - Build RPC  
-  If you run into errors about missing packages install them. For example: sudo apt install libssl-dev pkg-config  
   cargo build  
+  If you run into errors about missing packages install them. For example: sudo apt install libssl-dev pkg-config  
 
-- Configure RPC
+- Configure RPC  
+  Should look something like this:  
+```{
+  "firstName": "John",
+  "lastName": "Smith",
+  "age": 25
+}```
+
 
 - Run RPC
   ./target/debug/liberdus-rpc  
