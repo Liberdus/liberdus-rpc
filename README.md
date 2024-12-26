@@ -22,13 +22,27 @@ Liberdus RPC is a multi threaded server that route traffic between clients and l
 
 - Configure RPC  
   Should look something like this:  
-```{
-  "firstName": "John",
-  "lastName": "Smith",
-  "age": 25
+```
+src/archiver_seed.json
+[{"publicKey":"758b1c119412298802cd28dbfa394cdfeecc4074492d60844cc192d632d84de3","port":4000,"ip":"63.141.233.178"}]
+
+src/config.json
+{
+    "rpc_http_port": 8545,
+    "archiver_seed_path": "./src/archiver_seed.json",
+    "nodelist_refresh_interval_sec": 40,
+    "max_http_timeout_ms": 4000,
+    "debug": true,
+    "collector": {
+        "port": 6101,
+        "ip": "0.0.0.0"
+    },
+    "standalone_network": {
+        "enabled":  true,
+        "replacement_ip": "63.141.233.178"
+    }
 }
 ```
-
 
 - Run RPC
   ./target/debug/liberdus-rpc  
