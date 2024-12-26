@@ -73,71 +73,72 @@ impl ArchiverUtil {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<Vec<Archiver>, std::io::Error>>();
 
         let long_lived_self = self.clone();
+
+
         tokio::spawn(async move {
-            let mut tmp: Vec<Archiver> = Vec::new(); 
-            while let Some(result) = rx.recv().await {
-                match result {
-                    Ok(archivers) => {
-                        tmp.extend(archivers);
-                    },
-                    Err(_) => {},
-                }
+            for offline_combined_list in cache.as_slice() {
+                let url = format!("http://{}:{}/archivers", offline_combined_list.ip, offline_combined_list.port);
+                let transmitter = tx.clone();
+                let long_lived_self = self.clone();
+
+                tokio::spawn(async move {
+                    let resp = match reqwest::get(url).await {
+                        Ok(resp) => { 
+                            let body: Result<SignedArchiverListResponse, _> = serde_json::from_str(&resp.text().await.unwrap());
+                            match body {
+                                Ok(body) => {
+                                    if long_lived_self.verify_signature(&body) {
+                                        Ok(body.activeArchivers)
+                                    } else {
+                                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid signature"))
+                                    }
+                                },
+                                Err(_) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Malformed Json")),
+                            }
+                        },
+                        Err(_) => {
+                            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid response"))
+                        }
+                    };
+                    let _ = transmitter.send(resp);
+                    drop(transmitter);
+                });
             }
-
-
-            tmp.dedup_by(|a, b| a.publicKey == b.publicKey);
-
-
-            if long_lived_self.config.standalone_network.enabled {
-                for archiver in tmp.iter_mut() {
-                    archiver.ip = long_lived_self.config.standalone_network.replacement_ip.clone();
-                }
-            }
-
-            let dump = tmp.clone();
-
-            {
-                let mut guard = long_lived_self.active_archivers.write().await;
-                *guard = tmp;
-                drop(guard);
-            }
-
-            tokio::spawn(async move {
-                let mut file = tokio::fs::File::create("known_archiver_cache.json").await.unwrap();
-                let data = serde_json::to_string(&dump).unwrap();
-                file.write_all(data.as_bytes()).await.unwrap();
-            });
         });
 
-
-        for offline_combined_list in cache.as_slice() {
-            let url = format!("http://{}:{}/archivers", offline_combined_list.ip, offline_combined_list.port);
-            let transmitter = tx.clone();
-            let long_lived_self = self.clone();
-
-            tokio::spawn(async move {
-                let resp = match reqwest::get(url).await {
-                    Ok(resp) => { 
-                        let body: Result<SignedArchiverListResponse, _> = serde_json::from_str(&resp.text().await.unwrap());
-                        match body {
-                            Ok(body) => {
-                                if long_lived_self.verify_signature(&body) {
-                                    Ok(body.activeArchivers)
-                                } else {
-                                    Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid signature"))
-                                }
-                            },
-                            Err(_) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Malformed Json")),
-                        }
-                    },
-                    Err(_) => {
-                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid response"))
-                    }
-                };
-                let _ = transmitter.send(resp);
-                drop(transmitter);
-            });
+        let mut tmp: Vec<Archiver> = Vec::new(); 
+        while let Some(result) = rx.recv().await {
+            match result {
+                Ok(archivers) => {
+                    tmp.extend(archivers);
+                },
+                Err(_) => {},
+            }
         }
+
+
+        tmp.dedup_by(|a, b| a.publicKey == b.publicKey);
+
+
+        if long_lived_self.config.standalone_network.enabled {
+            for archiver in tmp.iter_mut() {
+                archiver.ip = long_lived_self.config.standalone_network.replacement_ip.clone();
+            }
+        }
+
+        let dump = tmp.clone();
+
+        {
+            let mut guard = long_lived_self.active_archivers.write().await;
+            *guard = tmp;
+            drop(guard);
+        }
+
+        tokio::spawn(async move {
+            let mut file = tokio::fs::File::create("known_archiver_cache.json").await.unwrap();
+            let data = serde_json::to_string(&dump).unwrap();
+            file.write_all(data.as_bytes()).await.unwrap();
+        });
 
     }
 
