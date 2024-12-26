@@ -26,7 +26,8 @@ Liberdus RPC is a multi threaded server that route traffic between clients and l
   "firstName": "John",
   "lastName": "Smith",
   "age": 25
-}```
+}
+```
 
 
 - Run RPC
