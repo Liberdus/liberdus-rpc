@@ -5,14 +5,14 @@ Liberdus RPC is a multi threaded server that route traffic between clients and l
 - [ ] Transaction receipt are offloaded to the archive node and rpc should obtain the receipt from the archive node via offchain data distributor services as a first source and fallback to asking consensor node. 
 
 # Setup on Linux
-- Install Rust
-  As a regular user run
+- Install Rust  
+  As a regular user run  
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-- Download Liberdus RPC
-  mkdir rpc
-  cd rpc
-  wget https://github.com/Liberdus/liberdus-rpc/archive/refs/heads/main.zip
+- Download Liberdus RPC  
+  mkdir rpc  
+  cd rpc  
+  wget https://github.com/Liberdus/liberdus-rpc/archive/refs/heads/main.zip  
   unzip main.zip
 
 - Build RPC
