@@ -1,3 +1,4 @@
+//! This module contains the node management logic require for load balancing with consensor nodes
 use crate::{archivers, collector, config};
 use reqwest;
 use serde_json;
@@ -173,9 +174,54 @@ impl  Liberdus {
 
     }
 
-    // normalized method works best IMO after many simulation
-    // it has more linear distribution of bias
-    // completely cut off node that are beyond max_timeout ie. 4sec, 5sec or as configured.
+    /// Calculates a node's bias for weighted random selection based on its HTTP round-trip time (RTT).
+    /// 
+    /// # Formula
+    /// The function uses the following formula to calculate bias:
+    /// ```math
+    /// bias = 1.0 - (timetaken_ms - min_timeout) / (max_timeout - min_timeout)
+    /// ```
+    /// where:
+    /// - `timetaken_ms` is the round-trip time (RTT) of the node in milliseconds.
+    /// - `min_timeout` is the theoretical minimum RTT (set to 0.01 ms for numerical stability).
+    /// - `max_timeout` is the maximum allowable RTT.
+    /// 
+    /// # Explanation
+    /// The bias is normalized to a scale between 0 and 1, where:
+    /// - A lower `timetaken_ms` (faster node) results in a higher bias, making the node more likely to be selected.
+    /// - A higher `timetaken_ms` (slower node) results in a lower bias, making the node less likely to be selected.
+    /// 
+    /// ## Steps:
+    /// 1. **Normalize RTT:** The RTT (`timetaken_ms`) is normalized using the formula:
+    ///    ```math
+    ///    normalized_rtt = (timetaken_ms - min_timeout) / (max_timeout - min_timeout)
+    ///    ```
+    ///    This maps the RTT to a range between 0 (minimum RTT) and 1 (maximum RTT).
+    /// 2. **Invert the Normalization:** The bias is calculated as:
+    ///    ```math
+    ///    bias = 1.0 - normalized_rtt
+    ///    ```
+    ///    This ensures that faster nodes (lower RTT) have a higher bias (closer to 1.0),
+    ///    while slower nodes (higher RTT) have a lower bias (closer to 0.0).
+    /// 
+    /// ## Special Case
+    /// If `max_timeout` is `1` (to prevent division by zero), the function assumes all nodes are equally performant and returns a bias of `1.0`.
+    /// 
+    /// ## Example
+    /// For a node with:
+    /// - `timetaken_ms = 100`
+    /// - `max_timeout = 500`
+    /// The bias is calculated as:
+    /// ```math
+    /// normalized_rtt = (100 - 0.01) / (500 - 0.01) ≈ 0.19996
+    /// bias = 1.0 - 0.19996 ≈ 0.80004
+    /// ```
+    /// This node is more likely to be selected compared to nodes with higher RTTs.
+    /// 
+    /// # Why This Works
+    /// - This bias calculation ensures that faster nodes (lower RTTs) are favored during selection.
+    /// - Nodes with RTTs close to `max_timeout` are effectively penalized, reducing their likelihood of being selected.
+    /// - The linear normalization and inversion provide a smooth, predictable weighting system.
     fn calculate_bias(&self, timetaken_ms: u128, max_timeout: u128) -> f64 {
         if max_timeout == 1 {
             return 1.0; // All timeouts are the same
@@ -186,6 +232,58 @@ impl  Liberdus {
         1.0 - (timetaken_ms_f - min_timeout_f) / (max_timeout_f - min_timeout_f)
     }
 
+    /// Computes and maintains a cumulative bias distribution for node selection.
+    /// 
+    /// # What is Cumulative Bias?
+    /// Cumulative bias is a method to efficiently perform weighted random selection.
+    /// Each node's individual bias is calculated based on its HTTP round-trip time (RTT),
+    /// and these biases are accumulated into a cumulative distribution. This allows for
+    /// efficient random selection of nodes where the probability of selection is proportional
+    /// to their bias.
+    /// 
+    /// # How It Works
+    /// 1. **Calculate Individual Bias:** For each node, an individual bias is computed using
+    ///    the `calculate_bias` function, which maps RTT to a value between `0.0` (poor performance)
+    ///    and `1.0` (high performance).
+    /// 2. **Build Cumulative Distribution:** The cumulative bias is computed by summing
+    ///    the biases iteratively. The resulting vector represents a range of cumulative weights:
+    ///    ```math
+    ///    cumulative_bias[i] = bias[0] + bias[1] + ... + bias[i]
+    ///    ```
+    /// 3. **Select Nodes:** When selecting a node, a random value is generated in the range
+    ///    `[0, total_bias]`, where `total_bias` is the last element of the cumulative vector.
+    ///    The appropriate node is determined using a binary search over the cumulative biases.
+    /// 
+    /// # Why It Works
+    /// - The cumulative bias ensures that nodes with higher individual biases have a larger
+    ///   range of values in the cumulative distribution, making them more likely to be selected.
+    /// - The binary search provides efficient lookup for random selection, making this approach
+    ///   scalable for large node lists.
+    /// 
+    /// # Example
+    /// Given the following nodes and biases:
+    /// ```text
+    /// Node  Bias
+    /// A     0.2
+    /// B     0.5
+    /// C     0.3
+    /// ```
+    /// The cumulative bias array will be:
+    /// ```text
+    /// [0.2, 0.7, 1.0]
+    /// ```
+    /// A random value between `0.0` and `1.0` is generated:
+    /// - A value in `[0.0, 0.2)` selects Node A.
+    /// - A value in `[0.2, 0.7)` selects Node B.
+    /// - A value in `[0.7, 1.0]` selects Node C.
+    /// 
+    /// # Efficiency
+    /// - Cumulative bias computation is O(n), where `n` is the number of nodes.
+    /// - Random selection using binary search is O(log n).
+    /// 
+    /// # Implementation in `prepare_list`
+    /// - The cumulative bias is stored in `self.load_distribution_commulative_bias`.
+    /// - It is recalculated whenever the node list is updated or RTT data changes.
     async fn prepare_list(&self) {
         if self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) == true {
             return;
@@ -483,6 +581,42 @@ impl  Liberdus {
         guard.subscribed_chats.get(chat_id).cloned()
     }
 
+    /// Discovers new chat messages for all subscribed chat rooms and sends updates to the corresponding subscribers.
+    /// 
+    /// This function operates as follows:
+    /// 1. **Check Active Subscriptions:** If there are no active subscriptions, the function immediately exits.
+    /// 2. **Setup Communication Channel:** Creates an unbounded channel to handle message fetching and delivery.
+    /// 3. **Spawn Listener Task:** A new asynchronous task is spawned to process the messages received from the chat rooms:
+    ///     - **Message Parsing:** Each message is deserialized into a `ChatAccount` struct.
+    ///     - **State Validation:** Compares the last known state (timestamp and message index) with the new state of the chat room.
+    ///         - If the new state is older than or equal to the last known state, the message is skipped.
+    ///         - Otherwise, determines how many new messages are present.
+    ///     - **Broadcast Messages:** For each subscriber of the chat room:
+    ///         - Constructs a payload with the subscription ID and new messages.
+    ///         - Sends the payload to the WebSocket connection associated with the subscription.
+    ///         - Tracks disconnected subscribers for cleanup.
+    ///     - **Update State:** Updates the last known state for the chat room after broadcasting the messages.
+    /// 4. **Fetch Chat Room Data:** Iterates through all subscribed chat room addresses and spawns tasks to fetch the latest
+    ///    data for each chat room from the blockchain or backend storage:
+    ///     - Calls `get_account_by_addr` for each chat room to retrieve the latest messages.
+    ///     - Sends the results to the communication channel for processing.
+    /// 
+    /// ## Considerations:
+    /// - **Concurrency:** The function uses asynchronous tasks to handle multiple chat rooms concurrently.
+    /// - **Fault Tolerance:** Handles errors gracefully by skipping over invalid or failed message deliveries and 
+    ///   unsubscribing disconnected clients.
+    /// - **Efficiency:** By comparing timestamps and message indices, the function avoids re-sending old messages, ensuring
+    ///   efficient use of network and compute resources.
+    /// 
+    /// ## Example Workflow:
+    /// - **Initial State:**
+    ///     - Chat room `chat1` has 10 messages.
+    ///     - Subscriber `sub1` is subscribed to `chat1`.
+    /// - **New Messages Arrive:**
+    ///     - `chat1` now has 15 messages.
+    ///     - The function detects 5 new messages and sends them to `sub1`.
+    /// - **Subscriber Disconnects:**
+    ///     - If `sub1` disconnects, the function removes the subscription and cleans up the internal state.
     pub async fn discover_new_chats(self: Arc<Self>){
         if self.chat_room_subscriptions.read().await.subscriptions.len() <= 0 {
             return;

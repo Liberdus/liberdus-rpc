@@ -1,3 +1,9 @@
+//! # Archiver Utility Module
+//! 
+//! This module provides functionality for managing and discovering archivers in the network. 
+//! It includes methods for loading archivers, verifying their authenticity, and maintaining 
+//! an active list of reachable archivers. The module is designed to work asynchronously, 
+//! allowing seamless integration in a highly concurrent environment.
 use reqwest;
 use crate::config;
 use sodiumoxide;
@@ -54,6 +60,21 @@ impl ArchiverUtil {
         }
     }
 
+    /// Discovers active archivers in the network.
+    /// 
+    /// This method fetches the archiver lists from known seed nodes, validates their signatures,
+    /// and updates the active list. It also caches the results to a file for future use.
+    /// 
+    /// # Process
+    /// 1. Load cached archiver data from a local file.
+    /// 2. Combine the cached data with the seed list to form a discovery base.
+    /// 3. Query each archiver in the list for its view of the active network.
+    /// 4. Validate the cryptographic signature of each response.
+    /// 5. Deduplicate the archiver list by public key.
+    /// 6. Update the active archiver list and persist it back to the cache file.
+    ///
+    /// This function mutate the archiver list shared across the application. Meaning that it will
+    /// inevitably lock the list but it is optimized to minimize the time the lock is held.
     pub async fn discover(self: Arc<Self>) {
          
         let mut cache:Vec<Archiver> = match fs::read_to_string("known_archiver_cache.json") {

@@ -1,18 +1,36 @@
+//! RPC Methods for Interacting with the Liberdus Backend.
+//! 
+//! This module provides a set of asynchronous functions to handle RPC requests. These functions
+//! interact with the `liberdus` library to perform operations such as sending transactions,
+//! fetching transaction receipts, managing subscriptions, and more.
+//! 
+//! # Functions Overview
+//! - [`lib_send_transaction`]: Injects a transaction into the Liberdus system with retry logic.
+//! - [`lib_get_transaction_receipt`]: Retrieves the receipt of a specific transaction.
+//! - [`lib_get_transaction_history`]: Fetches the transaction history for a given account.
+//! - [`lib_get_account`]: Fetches account details based on an address.
+//! - [`lib_get_messages`]: Retrieves chat messages for a specific chat ID.
+//! - [`lib_subscribe`]: Subscribes to a chat room for updates.
+//! - [`lib_unsubscribe`]: Unsubscribes from a chat room.
+
 use crate::{liberdus, rpc::{self, RpcRequest}};
 use serde_json::Value;
 use std::sync::Arc;
 use rand::prelude::*;
 
-
+/// Sends a transaction to the Liberdus backend with retry logic.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the transaction details.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] indicating success or failure.
 pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse  {
     let params = req.params.unwrap_or(Value::Null);
     match params {
         Value::Array(values) if values.len() > 0 => {
             let tx = values[0].clone();
-            // match liberdus.inject_transaction(tx).await {
-            //     Ok(result) => return rpc::generate_success_response(req.id, result),
-            //     Err(e) => return rpc::generate_error_response(req.id, e.to_string().into()),
-            // };
             let max_retry = {
                 let mut rng = rand::thread_rng();
                 rng.gen_range(3..5)
@@ -24,13 +42,11 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
                         let parsed_result: liberdus::TxInjectRespInner = serde_json::from_value(result.clone()).unwrap();
                         if parsed_result.success {
                             return rpc::generate_success_response(req.id, result);
-                        }
-                        else {
+                        } else {
                             if counter < max_retry {
                                 counter += 1;
                                 continue;
-                            }
-                            else {
+                            } else {
                                 return rpc::generate_error_response(req.id, parsed_result.reason.into(), -32600);
                             }
                         }
@@ -39,20 +55,25 @@ pub async fn lib_send_transaction(req: rpc::RpcRequest, liberdus: &Arc<liberdus:
                         if counter < max_retry {
                             counter += 1;
                             continue;
-                        }
-                        else {
+                        } else {
                             return rpc::generate_error_response(req.id, e.to_string().into(), -32600);
                         }
                     },
                 }
             }
-
-
         }
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
 
+/// Retrieves the receipt of a specific transaction.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the transaction hash.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] with the transaction receipt or an error.
 pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = req.params.unwrap_or(Value::Null);
     match params {
@@ -67,6 +88,14 @@ pub async fn lib_get_transaction_receipt(req: rpc::RpcRequest, liberdus: &Arc<li
     }
 }
 
+/// Fetches the transaction history for a specific account.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the account ID.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] with the transaction history or an error.
 pub async fn lib_get_transaction_history(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
@@ -85,6 +114,14 @@ pub async fn lib_get_transaction_history(req: rpc::RpcRequest, liberdus: &Arc<li
     }
 }
 
+/// Retrieves account details for a specific address.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the account address.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] with the account details or an error.
 pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
@@ -103,6 +140,14 @@ pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
     }
 }
 
+/// Retrieves chat messages for a specific chat ID.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the chat ID.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] with the messages or an error.
 pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
@@ -121,7 +166,16 @@ pub async fn lib_get_messages(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Lib
     }
 }
 
-
+/// Subscribes to a chat room for updates.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the chat ID.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+/// - `transmitter`: An optional channel transmitter for sending subscription updates.
+/// - `subscription_id`: An optional subscription ID.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] indicating success or failure.
 pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>, transmitter: Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>, subscription_id: Option<String>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
@@ -141,7 +195,6 @@ pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberd
         _ => return rpc::generate_error_response(req.id, "Invalid subscription id".into(), -32600),
     };
 
-
     match params {
         Value::Array(values) if values.len() > 0 => {
             let chat_id = values[0].as_str().unwrap_or("").to_string();
@@ -155,7 +208,14 @@ pub async fn lib_subscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberd
     }
 }
 
-
+/// Unsubscribes from a chat room.
+///
+/// # Parameters
+/// - `req`: The RPC request containing the subscription ID.
+/// - `liberdus`: A reference to the `liberdus::Liberdus` instance.
+///
+/// # Returns
+/// An [`rpc::RpcResponse`] indicating success or failure.
 pub async fn lib_unsubscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let params = match req.params {
         Some(params) => params,
@@ -174,3 +234,4 @@ pub async fn lib_unsubscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
+
