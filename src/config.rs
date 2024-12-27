@@ -1,14 +1,30 @@
+//! Configuration for the rpc server.
 use std::fs;
 
 #[derive(Debug, serde::Deserialize)]
 #[derive(Clone)]
 pub struct Config{
+    /// The port on which the RPC server will listen
     pub rpc_http_port: u16,
+
+    /// This is a system directory path to the archiver seed file
+    /// Archiver seed file should contain a list of reputable and reliable node
     pub archiver_seed_path: String,
+
+    /// The interval in seconds at which the node list will be refreshed
     pub nodelist_refresh_interval_sec: u64,
+
+    /// This is currently not used anywhere
     pub debug: bool,
+
+    /// The maximum time in milliseconds that the rpc will cancel a request when communication with
+    /// collector or consensus node
     pub max_http_timeout_ms: u128,
+
+    /// Collector configuration
     pub collector: CollectorConfig,
+
+    /// Standalone network configuration
     pub standalone_network: StandaloneNetworkConfig,
 }
 
@@ -32,6 +48,8 @@ pub struct StandaloneNetworkConfig {
     pub enabled: bool,
 }
 
+/// Load the configuration from the config json file
+/// path is src/config.json
 impl Config {
     pub fn load() -> Result<Self, String> {
         let config_file = format!("src/config.json");
