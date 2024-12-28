@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"liberdus_rpc":[["impl Endpoint for <a class=\"struct\" href=\"liberdus_rpc/rpc/struct.http_rpc_handler.html\" title=\"struct liberdus_rpc::rpc::http_rpc_handler\">http_rpc_handler</a>"],["impl Endpoint for <a class=\"struct\" href=\"liberdus_rpc/rpc/struct.ws_rpc_handler.html\" title=\"struct liberdus_rpc::rpc::ws_rpc_handler\">ws_rpc_handler</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
