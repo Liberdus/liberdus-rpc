@@ -22,11 +22,9 @@ jobs:
       run: cargo test --verbose
     - name: Generate docs
       run: cargo doc --no-deps
-    - name: Prepare docs for github pages
-      run: cp -r target/doc/static.files target/doc/liberdus_rpc/.
 
     - name: Deploy to gh-pages
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./target/doc/liberdus_rpc
+        publish_dir: ./target/doc/
