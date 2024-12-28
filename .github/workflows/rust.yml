@@ -23,6 +23,10 @@ jobs:
     - name: Generate docs
       run: cargo doc --no-deps
 
+    - name: Redirect
+      run: echo '<!DOCTYPE HTML><html lang="en-US"><head><meta charset="UTF-8"><meta http-equiv="refresh" content="0; url=https://liberdus.com/liberdus-rpc/liberdus_rpc"><script type="text/javascript">window.location.href = "https://liberdus.com/liberdus-rpc/liberdus_rpc"</script><title>Page Redirection</title></head><body>If you are not redirected automatically, follow this <a href="https://liberdus.com/liberdus-rpc/liberdus_rpc">link to example</a>.</body></html>' > index.html
+
+
     - name: Deploy to gh-pages
       uses: peaceiris/actions-gh-pages@v3
       with:
