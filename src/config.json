@@ -1,7 +1,7 @@
 {
     "rpc_http_port": 8545,
     "archiver_seed_path": "./src/archiver_seed.json",
-    "nodelist_refresh_interval_sec": 40,
+    "nodelist_refresh_interval_sec": 59,
     "max_http_timeout_ms": 4000,
     "debug": true,
     "collector": {
