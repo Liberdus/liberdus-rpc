@@ -785,6 +785,23 @@
 <a href="#785" id="785">785</a>
 <a href="#786" id="786">786</a>
 <a href="#787" id="787">787</a>
+<a href="#788" id="788">788</a>
+<a href="#789" id="789">789</a>
+<a href="#790" id="790">790</a>
+<a href="#791" id="791">791</a>
+<a href="#792" id="792">792</a>
+<a href="#793" id="793">793</a>
+<a href="#794" id="794">794</a>
+<a href="#795" id="795">795</a>
+<a href="#796" id="796">796</a>
+<a href="#797" id="797">797</a>
+<a href="#798" id="798">798</a>
+<a href="#799" id="799">799</a>
+<a href="#800" id="800">800</a>
+<a href="#801" id="801">801</a>
+<a href="#802" id="802">802</a>
+<a href="#803" id="803">803</a>
+<a href="#804" id="804">804</a>
 </pre></div><pre class="rust"><code><span class="doccomment">//! This module contains the node management logic require for load balancing with consensor nodes
 </span><span class="kw">use crate</span>::{archivers, collector, config};
 <span class="kw">use </span>reqwest;
@@ -1014,7 +1031,7 @@
             <span class="kw">return </span><span class="number">1.0</span>; <span class="comment">// All timeouts are the same
         </span>}
         <span class="kw">let </span>timetaken_ms_f = timetaken_ms <span class="kw">as </span>f64;
-        <span class="kw">let </span>min_timeout_f = <span class="number">0.01 </span><span class="kw">as </span>f64;
+        <span class="kw">let </span>min_timeout_f = <span class="number">0.0 </span><span class="kw">as </span>f64;
         <span class="kw">let </span>max_timeout_f = max_timeout <span class="kw">as </span>f64;
         <span class="number">1.0 </span>- (timetaken_ms_f - min_timeout_f) / (max_timeout_f - min_timeout_f)
     }
@@ -1087,7 +1104,7 @@
         };
 
         <span class="kw">let </span>max_timeout = <span class="self">self</span>.config.max_http_timeout_ms.try_into().unwrap_or(<span class="number">4000</span>); <span class="comment">// 3 seconds
-        </span><span class="kw">let </span><span class="kw-2">mut </span>sorted_nodes = nodes.clone();
+        </span><span class="kw">let </span><span class="kw-2">mut </span>sorted_nodes = nodes;
 
         sorted_nodes.sort_by(|a, b| {
             <span class="kw">let </span>a_time = trip_ms.get(<span class="kw-2">&amp;</span>a.id).unwrap_or(<span class="kw-2">&amp;</span>max_timeout);
@@ -1101,7 +1118,7 @@
             <span class="kw">let </span>last_http_round_trip = <span class="kw-2">*</span>trip_ms.get(<span class="kw-2">&amp;</span>node.id).unwrap_or(<span class="kw-2">&amp;</span>max_timeout);
             <span class="kw">let </span>bias = <span class="self">self</span>.calculate_bias(last_http_round_trip, max_timeout);
             node.rng_bias =  <span class="prelude-val">Some</span>(bias);
-            total_bias += node.rng_bias.unwrap_or(<span class="number">0.0</span>);
+            total_bias += bias;
             cumulative_bias.push(total_bias);
         }
 
@@ -1137,6 +1154,16 @@
 
             <span class="kw">let </span><span class="kw-2">mut </span>rng = thread_rng();
             <span class="kw">let </span>total_bias = <span class="kw-2">*</span>cumulative_weights.last().unwrap_or(<span class="kw-2">&amp;</span><span class="number">1.0</span>);
+
+
+            <span class="comment">// If all nodes have the same bias, return a random node
+            </span><span class="kw">if </span>total_bias == <span class="number">0.0 </span>{
+                <span class="kw">let </span>idx = rng.gen_range(<span class="number">0</span>..nodes.len());
+                <span class="self">self</span>.round_robin_index.store(<span class="number">0</span>, std::sync::atomic::Ordering::Relaxed);
+                <span class="self">self</span>.list_prepared.store(<span class="bool-val">false</span>, std::sync::atomic::Ordering::Relaxed);
+                <span class="kw">return </span><span class="prelude-val">Some</span>((idx, nodes[idx].clone()));
+            }
+
             <span class="kw">let </span>random_value: f64 = rng.gen_range(<span class="number">0.0</span>..total_bias);
 
             <span class="kw">let </span>index = <span class="kw">match </span>cumulative_weights.binary_search_by(
@@ -1162,7 +1189,9 @@
         <span class="kw">if </span><span class="self">self</span>.active_nodelist.read().<span class="kw">await</span>.is_empty() {
             <span class="kw">return </span><span class="prelude-val">None</span>;
         }
-        <span class="kw">match </span><span class="self">self</span>.list_prepared.load(std::sync::atomic::Ordering::Relaxed) &amp;&amp; <span class="self">self</span>.load_distribution_commulative_bias.read().<span class="kw">await</span>.clone().len() &gt; <span class="number">0 </span>{
+        <span class="kw">match 
+            </span><span class="self">self</span>.list_prepared.load(std::sync::atomic::Ordering::Relaxed) &amp;&amp; 
+            (<span class="self">self</span>.load_distribution_commulative_bias.read().<span class="kw">await</span>.clone().len() == <span class="self">self</span>.active_nodelist.read().<span class="kw">await</span>.len()) {
             <span class="bool-val">true </span>=&gt; {
                <span class="kw">return </span><span class="self">self</span>.get_random_consensor_biased().<span class="kw">await 
             </span>},
@@ -1185,6 +1214,11 @@
     }
 
     <span class="kw">pub fn </span>set_consensor_trip_ms(<span class="kw-2">&amp;</span><span class="self">self</span>, node_id: String, trip_ms: u128){
+        <span class="comment">// list already prepared on the first round robin,  no need to keep recording rtt for nodes
+        </span><span class="kw">if </span><span class="self">self</span>.list_prepared.load(std::sync::atomic::Ordering::Relaxed) == <span class="bool-val">true </span>{
+            <span class="kw">return</span>;
+        }
+
         <span class="kw">let </span>trip_ms_map = <span class="self">self</span>.trip_ms.clone();
 
         tokio::spawn(<span class="kw">async move </span>{
