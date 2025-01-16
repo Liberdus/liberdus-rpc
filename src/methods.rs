@@ -235,3 +235,9 @@ pub async fn lib_unsubscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
     }
 }
 
+pub async fn lib_get_nodelist(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
+    let nodelist = liberdus.active_nodelist.read().await;
+
+    rpc::generate_success_response(req.id, serde_json::json!(nodelist.clone()))
+}
+

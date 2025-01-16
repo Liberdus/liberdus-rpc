@@ -66,6 +66,9 @@ pub struct CrossThreadSharedState {
 /// - `Err(std::io::Error)` if an I/O error occurs during initialization.
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
+
+    // console_subscriber::init();
+
     let _configs = config::Config::load().unwrap_or_else(|err| {
         eprintln!("Failed to load config: {}", err);
         std::process::exit(1);

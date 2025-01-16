@@ -135,6 +135,7 @@ async fn rpc_handler(
         "lib_getMessages" => methods::lib_get_messages(req, liberdus).await,
         "lib_subscribe" => methods::lib_subscribe(req, liberdus, transmitter, subscription_id).await,
         "lib_unsubscribe" => methods::lib_unsubscribe(req, liberdus).await,
+        "lib_getNodeList" => methods::lib_get_nodelist(req, liberdus).await,
         _ => generate_error_response(id, "Method not found".to_string(), -32601),
     };
 

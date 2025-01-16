@@ -387,7 +387,7 @@ impl  Liberdus {
         }
         match 
             self.list_prepared.load(std::sync::atomic::Ordering::Relaxed) && 
-            (self.load_distribution_commulative_bias.read().await.clone().len() == self.active_nodelist.read().await.len()) {
+            (self.load_distribution_commulative_bias.read().await.len() == self.active_nodelist.read().await.len()) {
             true => {
                return self.get_random_consensor_biased().await 
             },
