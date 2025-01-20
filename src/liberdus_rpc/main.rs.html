@@ -147,6 +147,9 @@
 <a href="#147" id="147">147</a>
 <a href="#148" id="148">148</a>
 <a href="#149" id="149">149</a>
+<a href="#150" id="150">150</a>
+<a href="#151" id="151">151</a>
+<a href="#152" id="152">152</a>
 </pre></div><pre class="rust"><code><span class="doccomment">//! This is the main module of the JSON-RPC server.
 //! 
 //! This module sets up and initializes the server, managing shared state, cryptographic utilities,
@@ -215,7 +218,10 @@
 /// - `Err(std::io::Error)` if an I/O error occurs during initialization.
 </span><span class="attr">#[tokio::main]
 </span><span class="kw">async fn </span>main() -&gt; <span class="prelude-ty">Result</span>&lt;(), std::io::Error&gt; {
-    <span class="kw">let </span>_configs = config::Config::load().unwrap_or_else(|err| {
+
+    <span class="comment">// console_subscriber::init();
+
+    </span><span class="kw">let </span>_configs = config::Config::load().unwrap_or_else(|err| {
         <span class="macro">eprintln!</span>(<span class="string">"Failed to load config: {}"</span>, err);
         std::process::exit(<span class="number">1</span>);
     });

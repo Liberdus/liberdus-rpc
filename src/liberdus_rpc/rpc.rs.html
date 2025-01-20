@@ -261,6 +261,7 @@
 <a href="#261" id="261">261</a>
 <a href="#262" id="262">262</a>
 <a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a>
 </pre></div><pre class="rust"><code><span class="doccomment">//! This module provides utilities to handle RPC calls for interacting with a backend system.
 //! 
 //! The module includes the following functionalities:
@@ -398,6 +399,7 @@
         <span class="string">"lib_getMessages" </span>=&gt; methods::lib_get_messages(req, liberdus).<span class="kw">await</span>,
         <span class="string">"lib_subscribe" </span>=&gt; methods::lib_subscribe(req, liberdus, transmitter, subscription_id).<span class="kw">await</span>,
         <span class="string">"lib_unsubscribe" </span>=&gt; methods::lib_unsubscribe(req, liberdus).<span class="kw">await</span>,
+        <span class="string">"lib_getNodeList" </span>=&gt; methods::lib_get_nodelist(req, liberdus).<span class="kw">await</span>,
         <span class="kw">_ </span>=&gt; generate_error_response(id, <span class="string">"Method not found"</span>.to_string(), -<span class="number">32601</span>),
     };
 

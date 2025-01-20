@@ -1191,7 +1191,7 @@
         }
         <span class="kw">match 
             </span><span class="self">self</span>.list_prepared.load(std::sync::atomic::Ordering::Relaxed) &amp;&amp; 
-            (<span class="self">self</span>.load_distribution_commulative_bias.read().<span class="kw">await</span>.clone().len() == <span class="self">self</span>.active_nodelist.read().<span class="kw">await</span>.len()) {
+            (<span class="self">self</span>.load_distribution_commulative_bias.read().<span class="kw">await</span>.len() == <span class="self">self</span>.active_nodelist.read().<span class="kw">await</span>.len()) {
             <span class="bool-val">true </span>=&gt; {
                <span class="kw">return </span><span class="self">self</span>.get_random_consensor_biased().<span class="kw">await 
             </span>},
