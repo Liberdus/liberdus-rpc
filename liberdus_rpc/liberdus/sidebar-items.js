@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ChatAccount","ChatRoomSubscriptionData","Consensor","GetAccountResp","GetTransactionResp","Liberdus","Signature","SignedNodeListResp","TxInjectResp","TxInjectRespInner"],"type":["ChatRoomAddress","SubscriptionId"]};
+window.SIDEBAR_ITEMS = {"struct":["ChatAccount","ChatRoomSubscriptionData","Consensor","GetAccountResp","GetAddressByAliasResp","GetTransactionResp","Liberdus","Signature","SignedNodeListResp","TxInjectResp","TxInjectRespInner"],"type":["ChatRoomAddress","SubscriptionId"]};

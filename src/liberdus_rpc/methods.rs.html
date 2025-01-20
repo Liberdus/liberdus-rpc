@@ -241,6 +241,20 @@
 <a href="#241" id="241">241</a>
 <a href="#242" id="242">242</a>
 <a href="#243" id="243">243</a>
+<a href="#244" id="244">244</a>
+<a href="#245" id="245">245</a>
+<a href="#246" id="246">246</a>
+<a href="#247" id="247">247</a>
+<a href="#248" id="248">248</a>
+<a href="#249" id="249">249</a>
+<a href="#250" id="250">250</a>
+<a href="#251" id="251">251</a>
+<a href="#252" id="252">252</a>
+<a href="#253" id="253">253</a>
+<a href="#254" id="254">254</a>
+<a href="#255" id="255">255</a>
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a>
 </pre></div><pre class="rust"><code><span class="doccomment">//! RPC Methods for Interacting with the Liberdus Backend.
 //! 
 //! This module provides a set of asynchronous functions to handle RPC requests. These functions
@@ -372,12 +386,25 @@
     };
 
     <span class="kw">match </span>params {
-        Value::Array(values) <span class="kw">if </span>values.len() &gt; <span class="number">0 </span>=&gt; {
+        Value::Array(values) <span class="kw">if </span>values.len() == <span class="number">1 </span>=&gt; {
             <span class="kw">let </span>addr = values[<span class="number">0</span>].as_str().unwrap().to_string();
             <span class="kw">match </span>liberdus.get_account_by_addr(<span class="kw-2">&amp;</span>addr).<span class="kw">await </span>{
                 <span class="prelude-val">Ok</span>(result) =&gt; rpc::generate_success_response(req.id, result),
                 <span class="prelude-val">Err</span>(e) =&gt; rpc::generate_error_response(req.id, e.to_string().into(), -<span class="number">32600</span>),
             }
+        }
+        Value::Array(values) <span class="kw">if </span>values.len() == <span class="number">2 </span>=&gt; {
+            <span class="kw">let </span>alias = values[<span class="number">1</span>].as_str().unwrap().to_string();
+            <span class="kw">let </span>alias_address = <span class="kw">match </span>liberdus.get_addr_linked_alias(alias).<span class="kw">await </span>{
+                <span class="prelude-val">Ok</span>(address) =&gt; address,
+                <span class="prelude-val">Err</span>(e) =&gt; <span class="kw">return </span>rpc::generate_error_response(req.id, e.to_string().into(), -<span class="number">32600</span>),
+            };
+
+            <span class="kw">match </span>liberdus.get_account_by_addr(<span class="kw-2">&amp;</span>alias_address).<span class="kw">await </span>{
+                <span class="prelude-val">Ok</span>(account) =&gt; rpc::generate_success_response(req.id, account),
+                <span class="prelude-val">Err</span>(e) =&gt; rpc::generate_error_response(req.id, e.to_string().into(), -<span class="number">32600</span>),
+            }
+
         }
         <span class="kw">_ </span>=&gt; rpc::generate_error_response(req.id, <span class="string">"Invalid parameters"</span>.into(), -<span class="number">32600</span>),
     }
@@ -477,6 +504,7 @@
         <span class="kw">_ </span>=&gt; rpc::generate_error_response(req.id, <span class="string">"Invalid parameters"</span>.into(), -<span class="number">32600</span>),
     }
 }
+
 
 <span class="kw">pub async fn </span>lib_get_nodelist(req: rpc::RpcRequest, liberdus: <span class="kw-2">&amp;</span>Arc&lt;liberdus::Liberdus&gt;) -&gt; rpc::RpcResponse {
     <span class="kw">let </span>nodelist = liberdus.active_nodelist.read().<span class="kw">await</span>;
