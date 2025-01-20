@@ -71,6 +71,12 @@ pub struct GetAccountResp{
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
+pub struct GetAddressByAliasResp{
+    address: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct GetTransactionResp{
     #[serde(skip_serializing_if = "Option::is_none")]
     account: Option<serde_json::Value>,
@@ -481,6 +487,34 @@ impl  Liberdus {
             },
             Err(e) => Err(e.to_string().into()),
         }
+    }
+
+    pub async fn get_addr_linked_alias(&self, alias: String) -> Result<String, serde_json::Value> {
+        let (_index, consensor) = match self.get_next_appropriate_consensor().await {
+            Some((index, consensor)) => (index, consensor),
+            None => return Err("Failed to select consensor".into()),
+        };
+
+        let alias_hash = self.crypto.hash(&alias.into_bytes(), crate::crypto::Format::Hex);
+
+        let start = std::time::Instant::now();
+        let resp = reqwest::get(&format!("http://{}:{}/address/{}", consensor.ip, consensor.port, alias_hash)).await;
+
+        let duration = start.elapsed().as_millis();
+
+        self.set_consensor_trip_ms(consensor.id, duration);
+
+        match resp{
+            Ok(resp) => {
+                let body: GetAddressByAliasResp = resp.json().await.unwrap();
+                match body.address {
+                    Some(addr) => Ok(addr),
+                    None => return Err(body.error.unwrap().into()),
+                }
+            },
+            Err(e) => return Err(e.to_string().into()),
+        }
+
     }
 
     pub async fn get_transaction_receipt(&self, id: &String) -> Result<serde_json::Value, serde_json::Value>{

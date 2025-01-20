@@ -129,12 +129,25 @@ pub async fn lib_get_account(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
     };
 
     match params {
-        Value::Array(values) if values.len() > 0 => {
+        Value::Array(values) if values.len() == 1 => {
             let addr = values[0].as_str().unwrap().to_string();
             match liberdus.get_account_by_addr(&addr).await {
                 Ok(result) => rpc::generate_success_response(req.id, result),
                 Err(e) => rpc::generate_error_response(req.id, e.to_string().into(), -32600),
             }
+        }
+        Value::Array(values) if values.len() == 2 => {
+            let alias = values[1].as_str().unwrap().to_string();
+            let alias_address = match liberdus.get_addr_linked_alias(alias).await {
+                Ok(address) => address,
+                Err(e) => return rpc::generate_error_response(req.id, e.to_string().into(), -32600),
+            };
+
+            match liberdus.get_account_by_addr(&alias_address).await {
+                Ok(account) => rpc::generate_success_response(req.id, account),
+                Err(e) => rpc::generate_error_response(req.id, e.to_string().into(), -32600),
+            }
+
         }
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
@@ -234,6 +247,7 @@ pub async fn lib_unsubscribe(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Libe
         _ => rpc::generate_error_response(req.id, "Invalid parameters".into(), -32600),
     }
 }
+
 
 pub async fn lib_get_nodelist(req: rpc::RpcRequest, liberdus: &Arc<liberdus::Liberdus>) -> rpc::RpcResponse {
     let nodelist = liberdus.active_nodelist.read().await;
