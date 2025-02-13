@@ -120,7 +120,10 @@ async fn main() -> Result<(), std::io::Error> {
         liberdus: lbd,
     };
 
-    let cors = poem::middleware::Cors::new();
+    let cors = poem::middleware::Cors::new()
+                    .allow_method(poem::http::Method::GET)
+                    .allow_method(poem::http::Method::POST)
+                    .allow_credentials(true);
 
     println!("Waiting for active nodelist to be populated.....");
     loop {
