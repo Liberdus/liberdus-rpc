@@ -150,6 +150,9 @@
 <a href="#150" id="150">150</a>
 <a href="#151" id="151">151</a>
 <a href="#152" id="152">152</a>
+<a href="#153" id="153">153</a>
+<a href="#154" id="154">154</a>
+<a href="#155" id="155">155</a>
 </pre></div><pre class="rust"><code><span class="doccomment">//! This is the main module of the JSON-RPC server.
 //! 
 //! This module sets up and initializes the server, managing shared state, cryptographic utilities,
@@ -272,7 +275,10 @@
         liberdus: lbd,
     };
 
-    <span class="kw">let </span>cors = poem::middleware::Cors::new();
+    <span class="kw">let </span>cors = poem::middleware::Cors::new()
+                    .allow_method(poem::http::Method::GET)
+                    .allow_method(poem::http::Method::POST)
+                    .allow_credentials(<span class="bool-val">true</span>);
 
     <span class="macro">println!</span>(<span class="string">"Waiting for active nodelist to be populated....."</span>);
     <span class="kw">loop </span>{
